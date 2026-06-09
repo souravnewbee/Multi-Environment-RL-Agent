@@ -41,20 +41,26 @@ def demo_bed_allocation():
     if Q is None: return
     
     env    = HospitalEnv(task="bed_allocation")
-    action = get_recommendation("bed_allocation", state, Q, env)
+
+    # Hard rule — override agent if 0 beds
+    if free_beds == 0:
+        action = "Transfer"
+        reason = "No beds available, patient must be transferred"
+    else:
+        action = get_recommendation("bed_allocation", state, Q, env)
+        if action == "Admit":
+            reason = "Beds available, admit the patient"
+        elif action == "Reject":
+            reason = "No capacity, rejection necessary"
+        elif action == "Transfer":
+            reason = "Transfer to manage load efficiently"
     
     print(f"\n  ── Situation ──────────────────────────")
     print(f"  Free Beds        : {free_beds}")
     print(f"  Waiting Patients : {waiting_patients}")
     print(f"  ── Recommendation ─────────────────────")
     print(f"  Action           : {action}")
-    
-    if action == "Admit":
-        print(f"  Reason           : Beds available, admit the patient")
-    elif action == "Reject":
-        print(f"  Reason           : No capacity, rejection necessary")
-    elif action == "Transfer":
-        print(f"  Reason           : Transfer to manage load efficiently")
+    print(f"  Reason           : {reason}")
 
 def demo_er_queue():
     print("\n  Enter ER queue situation:")
@@ -66,18 +72,30 @@ def demo_er_queue():
     if Q is None: return
     
     env    = HospitalEnv(task="er_queue")
-    action = get_recommendation("er_queue", state, Q, env)
-    
+
+    # Hard rules — override agent for edge cases
+    if emergency == 0 and normal == 0:
+        action = "No Action"
+        reason = "No patients waiting in either queue"
+    elif emergency == 0:
+        action = "Serve Normal"
+        reason = "No emergency patients, serve normal queue"
+    elif normal == 0:
+        action = "Serve Emergency"
+        reason = "No normal patients, serve emergency queue"
+    else:
+        action = get_recommendation("er_queue", state, Q, env)
+        if action == "Serve Emergency":
+            reason = "Emergency cases take priority"
+        elif action == "Serve Normal":
+            reason = "No emergency cases, serve normal queue"
+
     print(f"\n  ── Situation ──────────────────────────")
     print(f"  Emergency Queue  : {emergency}")
     print(f"  Normal Queue     : {normal}")
     print(f"  ── Recommendation ─────────────────────")
     print(f"  Action           : {action}")
-    
-    if action == "Serve Emergency":
-        print(f"  Reason           : Emergency cases take priority")
-    elif action == "Serve Normal":
-        print(f"  Reason           : No emergency cases, serve normal queue")
+    print(f"  Reason           : {reason}")
 
 def demo_staff_allocation():
     print("\n  Enter staff situation:")
