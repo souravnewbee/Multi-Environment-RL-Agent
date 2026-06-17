@@ -6,7 +6,7 @@ def view_bed_allocation(Q):
     print(f"  {'Free Beds':<15} {'Waiting Patients':<20} {'Best Action'}")
     print(f"  {'-'*50}")
     
-    actions = ["Admit", "Reject", "Transfer"]
+    actions = ["Admit", "Transfer", "Reject"]
     bed_labels     = ["0-4", "5-9", "10-14", "15-19", "20+"]
     patient_labels = ["0-9", "10-19", "20-29", "30+"]
     
