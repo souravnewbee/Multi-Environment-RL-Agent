@@ -1,104 +1,157 @@
+"""
+UMORDA — Hospital Training Script
+Trains Q-learning agents for all 3 hospital tasks over 20,000 episodes each.
+Prints live progress, reward curves, and convergence info.
+"""
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
-import random
 from environments.hospital_env import HospitalEnv
+from agents.hospital_agent import HospitalAgent
 
-# ── Settings ────────────────────────────────────
-EPISODES    = 500
-ALPHA       = 0.1   # learning rate
-GAMMA       = 0.9   # discount factor
-EPSILON     = 1.0   # exploration rate
-EPSILON_MIN = 0.01
-EPSILON_DECAY = 0.995
+# ── Training config ──────────────────────────────────────────────────────────
+EPISODES      = 20000
+PRINT_EVERY   = 1000    # print summary every N episodes
+CURVE_EVERY   = 2000    # print reward bar chart every N episodes
 
-# ── Discretize state into bins ───────────────────
-def discretize(state, task):
-    if task == "bed_allocation":
-        beds     = min(state["free_beds"], 20) // 5         # 0-4
-        patients = min(state["waiting_patients"], 30) // 10 # 0-3
-        return (beds, patients)
+TASK_CONFIGS = [
+    {
+        "task":      "bed_allocation",
+        "q_shape":   (5, 4, 3),      # (bed_bins, patient_bins, actions)
+        "n_actions": 3,
+        "alpha":     0.1,
+        "gamma":     0.97,
+        "epsilon_decay": 0.9995,
+    },
+    {
+        "task":      "er_queue",
+        "q_shape":   (4, 5, 2),      # (emergency_bins, normal_bins, actions)
+        "n_actions": 2,
+        "alpha":     0.1,
+        "gamma":     0.97,
+        "epsilon_decay": 0.9995,
+    },
+    {
+        "task":      "staff_allocation",
+        "q_shape":   (4, 4, 3),      # (doctor_bins, load_bins, actions)
+        "n_actions": 3,
+        "alpha":     0.08,           # slightly lower LR — more stable
+        "gamma":     0.97,
+        "epsilon_decay": 0.9997,     # slower decay — needs more exploration
+    },
+]
 
-    elif task == "er_queue":
-        emergency = min(state["emergency_queue"], 10) // 3  # 0-3
-        normal    = min(state["normal_queue"], 20) // 5     # 0-4
-        return (emergency, normal)
 
-    elif task == "staff_allocation":
-        doctors  = min(state["available_doctors"], 15) // 5 # 0-3
-        load     = min(state["patient_load"], 50) // 15     # 0-3
-        return (doctors, load)
+# ── Mini bar chart for reward curve ─────────────────────────────────────────
+def bar(value, max_val=150, width=30):
+    if max_val == 0:
+        return ""
+    filled = int(width * max(0, value) / max_val)
+    return "█" * filled
 
-# ── Train one task ───────────────────────────────
-def train_task(task_name, q_shape, n_actions):
-    print(f"\n  Training: {task_name.upper().replace('_', ' ')}")
-    print(f"  {'-' * 40}")
 
-    env     = HospitalEnv(task=task_name)
-    Q       = np.zeros(q_shape)
-    epsilon = EPSILON
+# ── Train a single task ──────────────────────────────────────────────────────
+def train_task(config):
+    task = config["task"]
+    print(f"\n{'='*54}")
+    print(f"  TASK : {task.upper().replace('_', ' ')}")
+    print(f"  Episodes: {EPISODES:,}  |  α={config['alpha']}  |  γ={config['gamma']}")
+    print(f"{'='*54}")
 
-    reward_per_100 = []
-    total_reward   = 0
+    env   = HospitalEnv(task=task)
+    agent = HospitalAgent(
+        task          = task,
+        q_shape       = config["q_shape"],
+        n_actions     = config["n_actions"],
+        alpha         = config["alpha"],
+        gamma         = config["gamma"],
+        epsilon_decay = config["epsilon_decay"],
+    )
+
+    window_reward  = 0.0
+    window_deltas  = []
+    reward_history = []      # avg reward per PRINT_EVERY block
 
     for episode in range(1, EPISODES + 1):
-        state  = env.reset()
-        s      = discretize(state, task_name)
+        obs, _       = env.reset()
+        total_reward = 0.0
+        ep_deltas    = []
+        done         = False
 
-        # Epsilon-greedy action selection
-        if random.uniform(0, 1) < epsilon:
-            action = random.randint(0, n_actions - 1)  # explore
-        else:
-            action = np.argmax(Q[s])                   # exploit
+        while not done:
+            action               = agent.select_action(obs)
+            next_obs, reward, terminated, truncated, info = env.step(action)
+            done                 = terminated or truncated
+            delta                = agent.update(obs, action, reward, next_obs, done)
+            ep_deltas.append(delta)
+            total_reward        += reward
+            obs                  = next_obs
 
-        next_state, reward, done, info = env.step(action)
-        ns = discretize(next_state, task_name)
+        agent.decay_epsilon()
+        mean_delta = float(np.mean(ep_deltas)) if ep_deltas else 0.0
+        agent.log_episode(total_reward, mean_delta)
 
-        # Q-table update
-        Q[s][action] = Q[s][action] + ALPHA * (
-            reward + GAMMA * np.max(Q[ns]) - Q[s][action]
-        )
+        window_reward += total_reward
+        window_deltas.append(mean_delta)
 
-        total_reward += reward
-        epsilon = max(EPSILON_MIN, epsilon * EPSILON_DECAY)
+        # ── Print progress ───────────────────────────────────────────────────
+        if episode % PRINT_EVERY == 0:
+            avg_r     = window_reward / PRINT_EVERY
+            avg_delta = float(np.mean(window_deltas))
+            converged = "✓ CONVERGED" if agent.is_converged() else ""
+            print(
+                f"  Ep {episode:6,} | "
+                f"Avg Reward: {avg_r:7.2f} | "
+                f"ε: {agent.epsilon:.4f} | "
+                f"ΔQ: {avg_delta:.5f}  {converged}"
+            )
+            reward_history.append(avg_r)
+            window_reward = 0.0
+            window_deltas = []
 
-        # Print progress every 100 episodes
-        if episode % 100 == 0:
-            avg = total_reward / 100
-            reward_per_100.append(avg)
-            print(f"  Episode {episode:4d} | Avg Reward: {avg:6.2f} | Epsilon: {epsilon:.3f}")
-            total_reward = 0
+        # ── Print reward curve ───────────────────────────────────────────────
+        if episode % CURVE_EVERY == 0:
+            print(f"\n  ── Reward Curve (every {PRINT_EVERY} eps) ──────────────")
+            max_r = max(reward_history) if reward_history else 1
+            for i, r in enumerate(reward_history):
+                label = f"Ep {(i+1)*PRINT_EVERY:6,}"
+                print(f"  {label} | {bar(r, max_r)} {r:.1f}")
+            print()
 
-    print(f"\n  Reward progression (every 100 episodes):")
-    for i, r in enumerate(reward_per_100):
-        bar = "█" * int(max(0, r))
-        print(f"  Ep {(i+1)*100:4d} | {bar} {r:.2f}")
+    # ── Final summary ────────────────────────────────────────────────────────
+    print(f"\n  ── Final Summary ──────────────────────────────")
+    agent.summary()
 
     # Save Q-table
-    os.makedirs("qtables", exist_ok=True)
-    np.save(f"qtables/hospital_{task_name}.npy", Q)
-    print(f"\n  Q-table saved → qtables/hospital_{task_name}.npy")
+    save_path = f"qtables/hospital_{task}.npy"
+    agent.save(save_path)
+    print(f"  Q-table saved → {save_path}")
 
-    return Q
+    return agent
 
-# ── Main ─────────────────────────────────────────
+
+# ── Main ─────────────────────────────────────────────────────────────────────
 def main():
     print("\n")
-    print("*" * 50)
-    print("*   UMORDA — HOSPITAL TRAINING                *")
-    print("*" * 50)
+    print("*" * 54)
+    print("*   UMORDA — HOSPITAL RL TRAINING               *")
+    print(f"*   {EPISODES:,} episodes per task                    *")
+    print("*" * 54)
 
-    train_task("bed_allocation",   q_shape=(5, 4, 3), n_actions=3)
-    train_task("er_queue",         q_shape=(4, 5, 2), n_actions=2)
-    train_task("staff_allocation", q_shape=(4, 4, 3), n_actions=3)
+    trained_agents = {}
+    for config in TASK_CONFIGS:
+        agent = train_task(config)
+        trained_agents[config["task"]] = agent
 
     print("\n")
-    print("*" * 50)
-    print("*   ALL TASKS TRAINED SUCCESSFULLY            *")
-    print("*" * 50)
-    print("\n")
+    print("*" * 54)
+    print("*   ALL TASKS TRAINED SUCCESSFULLY              *")
+    print("*" * 54)
+    print("\n  Q-tables saved in qtables/")
+    print("  Run view_qtable.py to inspect decisions.\n")
+
 
 if __name__ == "__main__":
     main()

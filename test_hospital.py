@@ -1,27 +1,30 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+
 from environments.hospital_env import HospitalEnv
 
 def test_task(task_name):
     print("=" * 50)
     print(f"  TASK: {task_name.upper().replace('_', ' ')}")
     print("=" * 50)
-    
+
     env = HospitalEnv(task=task_name)
-    state = env.reset()
-    
-    print(f"\n  Initial State:")
-    for key, value in state.items():
-        print(f"    {key}: {value}")
-    
-    print(f"\n  Available Actions: {env.actions}")
-    
+    obs, _ = env.reset()   # Gymnasium returns (obs, info)
+
+    print(f"\n  Initial Observation: {obs}")
+    print(f"  Available Actions  : {env.actions}")
     print(f"\n  Running all actions:\n")
+
     for i, action in enumerate(env.actions):
         env.reset()
-        next_state, reward, done, info = env.step(i)
-        print(f"  Action    : {action}")
-        print(f"  Result    : {info['result']}")
-        print(f"  Reward    : {reward}")
-        print(f"  New State : {next_state}")
+        next_obs, reward, terminated, truncated, info = env.step(i)
+        done = terminated or truncated
+        print(f"  Action     : {action}")
+        print(f"  Result     : {info.get('result', '-')}")
+        print(f"  Reward     : {reward}")
+        print(f"  Next Obs   : {next_obs}")
+        print(f"  Done       : {done}")
         print(f"  {'-' * 40}")
 
 def main():
@@ -30,13 +33,13 @@ def main():
     print("*   UMORDA — HOSPITAL ENVIRONMENT TEST       *")
     print("*" * 50)
     print("\n")
-    
+
     test_task("bed_allocation")
     print("\n")
     test_task("er_queue")
     print("\n")
     test_task("staff_allocation")
-    
+
     print("\n")
     print("*" * 50)
     print("*   ALL TASKS COMPLETED SUCCESSFULLY         *")
