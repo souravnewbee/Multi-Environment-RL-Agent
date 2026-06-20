@@ -1,259 +1,232 @@
-"""
-UMORDA — Hospital Environment
-Gymnasium-compatible multi-task hospital resource management environment.
-Supports multi-step episodes so the agent learns across time, not just one-shot.
-"""
-
-import gymnasium as gym
-from gymnasium import spaces
 import numpy as np
 import random
 
 
-class HospitalEnv(gym.Env):
+class HospitalEnv:
     """
-    A Gymnasium-style environment for hospital resource management.
+    Multi-step hospital simulation.
 
-    Three tasks share this class:
-      - bed_allocation   : decide whether to Admit / Transfer / Reject incoming patients
-      - er_queue         : triage between Emergency and Normal queue each timestep
-      - staff_allocation : adjust doctor count relative to patient load
-
-    Each episode runs for MAX_STEPS timesteps (not done after 1 action).
-    This forces the agent to learn sequential, consistent decision-making.
+    Each episode is a full "shift" of SHIFT_LENGTH steps. State carries over
+    between steps within a shift (beds stay occupied, queues persist, staff
+    levels persist) so the agent's action now has real consequences later --
+    which is the only way a discount factor (GAMMA) can mean anything.
     """
 
-    metadata = {"render_modes": ["human"]}
+    SHIFT_LENGTH = 60  # steps per episode ("shift")
 
-    # ── Per-task episode length ──────────────────────────────────────────────
-    MAX_STEPS = {
-        "bed_allocation":   20,
-        "er_queue":         20,
-        "staff_allocation": 20,
-    }
+    def __init__(self, task="bed_allocation"):
+        self.task = task
+        self.state = None
+        self.done = False
+        self.t = 0
 
-    def __init__(self, task="bed_allocation", render_mode=None):
-        super().__init__()
-        assert task in self.MAX_STEPS, f"Unknown task: {task}"
-        self.task        = task
-        self.render_mode = render_mode
-        self.state       = {}
-        self.step_count  = 0
-        self._setup_spaces()
-
-    # ── Action / Observation spaces ──────────────────────────────────────────
-    def _setup_spaces(self):
         if self.task == "bed_allocation":
-            self.actions    = ["Admit", "Transfer", "Reject"]
-            # obs: [free_beds (0-20), waiting_patients (0-30)]
-            self.observation_space = spaces.Box(
-                low=np.array([0, 0], dtype=np.float32),
-                high=np.array([20, 30], dtype=np.float32),
-            )
+            self.state_vars = ["free_beds", "waiting_patients"]
+            self.actions = ["Admit", "Reject", "Transfer"]
+            self.n_actions = 3
+            self.total_beds = 20
 
         elif self.task == "er_queue":
-            self.actions    = ["Serve Emergency", "Serve Normal"]
-            # obs: [emergency_queue (0-10), normal_queue (0-20)]
-            self.observation_space = spaces.Box(
-                low=np.array([0, 0], dtype=np.float32),
-                high=np.array([10, 20], dtype=np.float32),
-            )
+            self.state_vars = ["emergency_queue", "normal_queue"]
+            self.actions = ["Serve Emergency", "Serve Normal"]
+            self.n_actions = 2
 
         elif self.task == "staff_allocation":
-            self.actions    = ["Assign More Staff", "Keep Current", "Reduce Staff"]
-            # obs: [available_doctors (1-15), patient_load (0-50)]
-            self.observation_space = spaces.Box(
-                low=np.array([1, 0], dtype=np.float32),
-                high=np.array([15, 50], dtype=np.float32),
-            )
+            self.state_vars = ["available_doctors", "patient_load"]
+            self.actions = ["Assign More Staff", "Keep Current", "Reduce Staff"]
+            self.n_actions = 3
 
-        self.n_actions = len(self.actions)
-        self.action_space = spaces.Discrete(self.n_actions)
+        else:
+            raise ValueError(f"Unknown task: {task}")
 
-    # ── Reset ────────────────────────────────────────────────────────────────
-    def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
-        self.step_count = 0
+    # -- Reset: start of a new shift --------------------------
+    def reset(self):
+        self.t = 0
+        self.done = False
 
         if self.task == "bed_allocation":
             self.state = {
-                "free_beds":        random.randint(0, 20),
-                "waiting_patients": random.randint(1, 30),   # always ≥1 so there's always a decision
+                "free_beds": random.randint(0, self.total_beds),
+                "waiting_patients": random.randint(0, 30),
             }
+            occupied = self.total_beds - self.state["free_beds"]
+            self._discharge_timers = [random.randint(1, 8) for _ in range(occupied)]
 
         elif self.task == "er_queue":
-            # Ensure at least one queue is non-empty
             self.state = {
                 "emergency_queue": random.randint(0, 10),
-                "normal_queue":    random.randint(0, 20),
+                "normal_queue": random.randint(0, 20),
             }
-            if self.state["emergency_queue"] == 0 and self.state["normal_queue"] == 0:
-                self.state["normal_queue"] = random.randint(1, 5)
 
         elif self.task == "staff_allocation":
             self.state = {
                 "available_doctors": random.randint(1, 15),
-                "patient_load":      random.randint(0, 50),
+                "patient_load": random.randint(0, 50),
             }
 
-        return self._obs(), {}
+        return self.state
 
-    # ── Step ─────────────────────────────────────────────────────────────────
+    # -- Step: one decision within the shift ------------------
     def step(self, action_index):
-        assert 0 <= action_index < self.n_actions
-        action  = self.actions[action_index]
-        reward  = 0.0
-        info    = {}
+        action = self.actions[action_index]
 
-        # ── Bed Allocation ───────────────────────────────────────────────────
         if self.task == "bed_allocation":
-            free_beds        = self.state["free_beds"]
-            waiting_patients = self.state["waiting_patients"]
-
-            if action == "Admit":
-                if free_beds > 10:
-                    reward = +10.0
-                    info["result"] = "Patient admitted — ample beds"
-                elif free_beds > 5:
-                    reward = +7.0
-                    info["result"] = "Patient admitted — moderate capacity"
-                elif free_beds > 0:
-                    reward = +3.0
-                    info["result"] = "Patient admitted — beds running low"
-                else:
-                    reward = -15.0
-                    info["result"] = "Cannot admit — no free beds (penalty)"
-
-                if free_beds > 0:
-                    self.state["free_beds"]        = max(0, free_beds - 1)
-                    self.state["waiting_patients"] = max(0, waiting_patients - 1)
-
-            elif action == "Transfer":
-             if free_beds == 0:
-              reward = +12.0   # was +10
-             elif free_beds <= 5:
-              reward = +8.0    # was +6
-             else:
-              reward = -6.0    # unchanged
-
-            elif action == "Reject":
-              reward = -20.0   # was -12, raise it so Transfer always wins
-              info["result"] = "Patient rejected — unacceptable"
-              # Stochastic arrivals each step — environment keeps moving
-              new_arrivals = random.randint(0, 3)
-              self.state["waiting_patients"] = min(30, self.state["waiting_patients"] + new_arrivals)
-              self.state["free_beds"]        = min(20, self.state["free_beds"] + random.randint(0, 1))  # occasional discharge
-
-        # ── ER Queue ─────────────────────────────────────────────────────────
+            reward, info = self._step_bed_allocation(action)
         elif self.task == "er_queue":
-            emergency_queue = self.state["emergency_queue"]
-            normal_queue    = self.state["normal_queue"]
+            reward, info = self._step_er_queue(action)
+        elif self.task == "staff_allocation":
+            reward, info = self._step_staff_allocation(action)
 
-            if action == "Serve Emergency":
+        self.t += 1
+        self.done = self.t >= self.SHIFT_LENGTH
+        return self.state, reward, self.done, info
+
+    # -- Bed Allocation ----------------------------------------
+    def _step_bed_allocation(self, action):
+        free_beds = self.state["free_beds"]
+        waiting_patients = self.state["waiting_patients"]
+        reward = 0
+        info = {}
+
+        if action == "Admit":
+            if free_beds > 0:
+                reward = +10
+                self.state["free_beds"] -= 1
+                self.state["waiting_patients"] = max(0, waiting_patients - 1)
+                self._discharge_timers.append(random.randint(1, 8))
+                info["result"] = "Patient admitted successfully"
+            else:
+                reward = -10
+                info["result"] = "Cannot admit -- no free beds"
+
+        elif action == "Reject":
+            reward = -5
+            info["result"] = "Patient rejected"
+
+        elif action == "Transfer":
+            reward = +3
+            self.state["waiting_patients"] = max(0, waiting_patients - 1)
+            info["result"] = "Patient transferred to another facility"
+
+        # World dynamics: beds free up, new patients arrive
+        self._discharge_timers = [d - 1 for d in self._discharge_timers]
+        discharged = sum(1 for d in self._discharge_timers if d <= 0)
+        self._discharge_timers = [d for d in self._discharge_timers if d > 0]
+        self.state["free_beds"] = min(
+            self.total_beds, self.state["free_beds"] + discharged
+        )
+
+        new_arrivals = random.choices([0, 1, 2, 3], weights=[35, 35, 20, 10])[0]
+        self.state["waiting_patients"] = min(
+            60, self.state["waiting_patients"] + new_arrivals
+        )
+
+        info["new_arrivals"] = new_arrivals
+        info["discharged"] = discharged
+
+        return reward, info
+
+    # -- ER Queue ------------------------------------------------
+    def _step_er_queue(self, action):
+        emergency_queue = self.state["emergency_queue"]
+        normal_queue = self.state["normal_queue"]
+        reward = 0
+        info = {}
+
+        if action == "Serve Emergency":
+            if emergency_queue > 0:
+                reward = +10
+                self.state["emergency_queue"] -= 1
+                info["result"] = "Emergency patient served"
+            else:
+                reward = -2
+                info["result"] = "No emergency patients waiting"
+
+        elif action == "Serve Normal":
+            if normal_queue > 0:
                 if emergency_queue > 0:
-                    reward = +10.0
-                    self.state["emergency_queue"] -= 1
-                    info["result"] = "Emergency patient served"
+                    reward = -5
+                    info["result"] = "Served normal while emergency waiting -- penalty"
                 else:
-                    reward = -5.0
-                    info["result"] = "No emergency patients — wasted action"
+                    reward = +5
+                    info["result"] = "Normal patient served"
+                self.state["normal_queue"] -= 1
+            else:
+                reward = -2
+                info["result"] = "No normal patients waiting"
 
-            elif action == "Serve Normal":
-                if normal_queue > 0:
-                    if emergency_queue > 0:
-                        # Strong penalty — skipping critical patients
-                        penalty = -5.0 - emergency_queue * 1.5   # scales with backlog
-                        reward  = penalty
-                        info["result"] = f"Skipped emergency queue (penalty={penalty:.1f})"
-                    else:
-                        reward = +8.0
-                        info["result"] = "Normal patient served — no emergency backlog"
-                    self.state["normal_queue"] -= 1
-                else:
-                    reward = -5.0
-                    info["result"] = "No normal patients — wasted action"
+        # World dynamics: queues grow, neglect compounds
+        new_emergency = random.choices([0, 1, 2], weights=[55, 35, 10])[0]
+        new_normal = random.choices([0, 1, 2, 3], weights=[30, 35, 25, 10])[0]
+        self.state["emergency_queue"] = min(
+            20, self.state["emergency_queue"] + new_emergency
+        )
+        self.state["normal_queue"] = min(
+            40, self.state["normal_queue"] + new_normal
+        )
 
-            # Stochastic arrivals
-            self.state["emergency_queue"] = min(10, self.state["emergency_queue"] + random.randint(0, 2))
-            self.state["normal_queue"]    = min(20, self.state["normal_queue"]    + random.randint(0, 3))
+        if self.state["normal_queue"] > 15:
+            reward -= 2
+            info["overflow_penalty"] = True
 
-        # ── Staff Allocation ──────────────────────────────────────────────────
-        elif self.task == "staff_allocation":
-            available_doctors = self.state["available_doctors"]
-            patient_load      = self.state["patient_load"]
+        info["new_emergency"] = new_emergency
+        info["new_normal"] = new_normal
 
-            if action == "Assign More Staff":
-                if patient_load > 30:
-                    reward = +10.0
-                    self.state["available_doctors"] = min(15, available_doctors + 1)
-                    info["result"] = "Staff added — high load justified"
-                elif patient_load > 15:
-                    reward = +4.0
-                    self.state["available_doctors"] = min(15, available_doctors + 1)
-                    info["result"] = "Staff added — moderate load, acceptable"
-                else:
-                    reward = -8.0
-                    info["result"] = "Overstaffed — low patient load"
+        return reward, info
 
-            elif action == "Keep Current":
-                if 10 <= patient_load <= 30:
-                    reward = +8.0
-                    info["result"] = "Maintained staffing — load is balanced"
-                elif patient_load < 10:
-                    reward = -4.0
-                    info["result"] = "Should reduce staff — load too low"
-                else:
-                    reward = -4.0
-                    info["result"] = "Should add staff — load too high"
+    # -- Staff Allocation ------------------------------------------
+    def _step_staff_allocation(self, action):
+        available_doctors = self.state["available_doctors"]
+        patient_load = self.state["patient_load"]
+        reward = 0
+        info = {}
 
-            elif action == "Reduce Staff":
-                if patient_load < 10:
-                    reward = +10.0
-                    self.state["available_doctors"] = max(1, available_doctors - 1)
-                    info["result"] = "Staff reduced — low load, cost saved"
-                elif patient_load <= 20:
-                    reward = -4.0
-                    info["result"] = "Risky reduction — moderate load"
-                else:
-                    reward = -15.0
-                    self.state["available_doctors"] = max(1, available_doctors - 1)
-                    info["result"] = "DANGEROUS — reduced staff under high load"
+        if action == "Assign More Staff":
+            if patient_load > 20:
+                reward = +10
+                self.state["available_doctors"] = min(20, available_doctors + 1)
+                info["result"] = "More staff assigned -- high load justified"
+            else:
+                reward = -3
+                self.state["available_doctors"] = min(20, available_doctors + 1)
+                info["result"] = "Unnecessary staffing -- low patient load"
 
-            # Stochastic load shift each step
-            load_delta = random.randint(-5, 8)
-            self.state["patient_load"] = int(np.clip(patient_load + load_delta, 0, 50))
+        elif action == "Keep Current":
+            if 10 <= patient_load <= 20:
+                reward = +5
+                info["result"] = "Current staffing maintained -- balanced"
+            else:
+                reward = -2
+                info["result"] = "Staffing level not optimal for current load"
 
-        # ── Episode bookkeeping ───────────────────────────────────────────────
-        self.step_count += 1
-        max_steps   = self.MAX_STEPS[self.task]
-        terminated  = False
-        truncated   = self.step_count >= max_steps
-        info["step"] = self.step_count
+        elif action == "Reduce Staff":
+            if patient_load < 10:
+                reward = +8
+                self.state["available_doctors"] = max(1, available_doctors - 1)
+                info["result"] = "Staff reduced -- low load, cost saved"
+            else:
+                reward = -10
+                self.state["available_doctors"] = max(1, available_doctors - 1)
+                info["result"] = "Dangerous -- reduced staff under high load"
 
-        if self.render_mode == "human":
-            self.render()
+        drift = random.choice([-4, -2, 0, 0, 2, 4, 6])
+        doctors_now = self.state["available_doctors"]
+        capacity = doctors_now * 4
 
-        return self._obs(), reward, terminated, truncated, info
+        if patient_load > capacity:
+            drift += 4
+        self.state["patient_load"] = max(0, min(80, patient_load + drift))
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
-    def _obs(self):
-        if self.task == "bed_allocation":
-            return np.array([self.state["free_beds"], self.state["waiting_patients"]], dtype=np.float32)
-        elif self.task == "er_queue":
-            return np.array([self.state["emergency_queue"], self.state["normal_queue"]], dtype=np.float32)
-        elif self.task == "staff_allocation":
-            return np.array([self.state["available_doctors"], self.state["patient_load"]], dtype=np.float32)
+        if doctors_now > 12:
+            reward -= 1
+            info["overstaff_cost"] = True
 
-    def get_state_dict(self):
-        return dict(self.state)
-
-    def render(self):
-        print(f"  [Step {self.step_count:02d}] {self.task} | State: {self.state}")
+        info["drift"] = drift
+        return reward, info
 
     def get_info(self):
         return {
-            "task":       self.task,
-            "actions":    self.actions,
-            "n_actions":  self.n_actions,
-            "max_steps":  self.MAX_STEPS[self.task],
+            "task": self.task,
+            "state_vars": self.state_vars,
+            "actions": self.actions,
         }

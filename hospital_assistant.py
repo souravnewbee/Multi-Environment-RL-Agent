@@ -1,15 +1,16 @@
 """
-UMORDA — Hospital RAG + LLM + RL Assistant
-Full pipeline: natural language in → RL decision → natural language out.
+UMORDA — Hospital RAG + LLM + RL Assistant (v2)
+Full conversational pipeline: free-form natural language in -> RL decision(s) out.
 
-Flow:
-  1. Load live hospital state (hospital_state.json)
-  2. User describes situation in plain English
-  3. LLM extracts/estimates structured state from message + known values
-  4. Q-table (trained RL agent) picks the action
-  5. Live state file is updated to reflect the action
-  6. RAG retrieves the relevant policy passage
-  7. LLM explains the decision in plain English, grounded in policy
+New in this version:
+  - No menu. User just describes the situation in plain English.
+  - LLM Router decides which task(s) the message concerns (can be multiple).
+  - Conversation memory: follow-up messages build on prior context
+    ("a few more patients arrived" adds to, doesn't replace, known state).
+  - Clarification: if input is implausible or too vague, the system asks
+    a natural follow-up question instead of guessing.
+  - RAG transparency: the retrieved policy passage is shown, not hidden.
+  - Optional grounded-vs-ungrounded comparison, toggled per-query.
 
 Run: python hospital_assistant.py
 Requires: GROQ_API_KEY environment variable set
@@ -20,16 +21,22 @@ import numpy as np
 
 from state_manager import get_task_state, merge_new_arrivals, apply_action_effect
 from policy_retriever import PolicyRetriever, build_query, TASK_SOURCE_MAP
-from llm_client import extract_state, explain_decision
+from llm_client import route_message, extract_state, explain_decision, explain_ungrounded
 
-TASKS = {
-    "1": ("bed_allocation",   "Bed Allocation",   ["Admit", "Transfer", "Reject"]),
-    "2": ("er_queue",         "ER Queue",         ["Serve Emergency", "Serve Normal"]),
-    "3": ("staff_allocation", "Staff Allocation", ["Assign More Staff", "Keep Current", "Reduce Staff"]),
+TASK_LABELS = {
+    "bed_allocation":   "Bed Allocation",
+    "er_queue":         "ER Queue",
+    "staff_allocation": "Staff Allocation",
+}
+TASK_ACTIONS = {
+    "bed_allocation":   ["Admit", "Transfer", "Reject"],
+    "er_queue":         ["Serve Emergency", "Serve Normal"],
+    "staff_allocation": ["Assign More Staff", "Keep Current", "Reduce Staff"],
 }
 
-# Internal reason hints — mirrors the logic baked into hospital_env.py rewards,
-# used to give the explainer LLM something concrete to ground its explanation in.
+MAX_HISTORY = 12   # cap conversation memory length (messages, not tokens)
+
+
 def get_reason_hint(task, state, action):
     if task == "bed_allocation":
         beds = state["free_beds"]
@@ -79,49 +86,70 @@ def load_qtable(task):
     return np.load(path)
 
 
-def run_pipeline(task, task_label, actions, user_message, retriever):
-    print(f"\n  ── Processing ({task_label}) ──────────────────")
+def process_task(task, user_message, conversation_history, retriever, show_comparison=False):
+    """Run the full pipeline for one routed task. Returns False if clarification was needed (paused)."""
+    label   = TASK_LABELS[task]
+    actions = TASK_ACTIONS[task]
 
-    # Step 1: known live state
+    print(f"\n  ── {label} ──────────────────────────────")
+
+    # Known live state
     known_state = get_task_state(task)
-    print(f"  Known state before  : {known_state}")
 
-    # Step 2: LLM extracts/estimates updated state from message
-    state = extract_state(task, user_message, known_state)
+    # LLM extraction with conversation memory + plausibility check
+    extraction = extract_state(task, user_message, known_state, conversation_history)
+
+    if extraction["needs_clarification"]:
+        question = extraction["clarification_question"] or "Could you clarify the numbers involved?"
+        print(f"  🤔 {question}")
+        return False   # signal: paused, waiting on user
+
+    state = extraction["state"]
+    if extraction["notes"]:
+        print(f"  (extracted: {state}  |  {extraction['notes']})")
+    else:
+        print(f"  (extracted: {state})")
+
     merge_new_arrivals(task, state)
-    print(f"  Extracted state      : {state}")
 
-    # Step 3: Q-table decision
+    # Q-table decision
     Q = load_qtable(task)
     if Q is None:
-        return
+        return True
     s          = discretize(state, task)
     action_idx = int(np.argmax(Q[s]))
     action     = actions[action_idx]
-    print(f"  RL Decision           : {action}")
 
-    # Step 4: update live state to reflect the action taken
-    new_state = apply_action_effect(task, action)
-    print(f"  Updated live state    : {new_state}")
+    # Update live state
+    apply_action_effect(task, action)
 
-    # Step 5: RAG retrieval
-    query   = build_query(task, state, action)
-    chunks  = retriever.retrieve(query, top_k=2, source_filter=TASK_SOURCE_MAP[task])
+    # RAG retrieval — shown transparently
+    query  = build_query(task, state, action)
+    chunks = retriever.retrieve(query, top_k=2, source_filter=TASK_SOURCE_MAP[task])
+    reason_hint = get_reason_hint(task, state, action)
 
-    # Step 6: LLM explanation
-    reason_hint   = get_reason_hint(task, state, action)
-    explanation   = explain_decision(task, state, action, reason_hint, chunks)
+    print(f"\n  📋 Retrieved policy ({chunks[0]['source']}, relevance={chunks[0]['score']:.2f}):")
+    snippet = chunks[0]["text"].split("\n")[0]   # header line
+    print(f"     \"{snippet}\"")
 
-    print(f"\n  ── Recommendation ─────────────────────")
-    print(f"  Action      : {action}")
-    print(f"  Explanation : {explanation}\n")
+    explanation = explain_decision(task, state, action, reason_hint, chunks)
+
+    print(f"\n  ✅ Action      : {action}")
+    print(f"  💬 Explanation : {explanation}")
+
+    if show_comparison:
+        ungrounded = explain_ungrounded(task, state, action, reason_hint)
+        print(f"\n  ⚠️  Without RAG (for comparison, may be generic/ungrounded):")
+        print(f"     {ungrounded}")
+
+    return True
 
 
 def main():
     print("\n")
-    print("*" * 54)
-    print("*   UMORDA — HOSPITAL RAG + LLM + RL ASSISTANT  *")
-    print("*" * 54)
+    print("*" * 56)
+    print("*   UMORDA — HOSPITAL RAG + LLM + RL ASSISTANT (v2)   *")
+    print("*" * 56)
 
     if not os.environ.get("GROQ_API_KEY"):
         print("\n  WARNING: GROQ_API_KEY not set.")
@@ -131,26 +159,54 @@ def main():
         return
 
     retriever = PolicyRetriever("knowledge_base")
-    print(f"\n  Knowledge base loaded: {len(retriever.chunks)} policy chunks.\n")
+    print(f"\n  Knowledge base loaded: {len(retriever.chunks)} policy chunks.")
+    print("  Just describe what's happening in plain English. Type 'exit' to quit.")
+    print("  Type 'compare' before a message to also see an ungrounded (no-RAG) explanation.\n")
+
+    conversation_history = []
+    pending_task = None   # set when a clarification question is waiting on a reply
 
     while True:
-        print("\n  Select a task:")
-        print("  1. Bed Allocation")
-        print("  2. ER Queue Management")
-        print("  3. Staff Allocation")
-        print("  4. Exit")
-
-        choice = input("\n  Enter choice (1/2/3/4): ").strip()
-
-        if choice in TASKS:
-            task, label, actions = TASKS[choice]
-            user_message = input(f"\n  Describe the {label} situation in your own words: ").strip()
-            run_pipeline(task, label, actions, user_message, retriever)
-        elif choice == "4":
+        user_message = input("\n  You: ").strip()
+        if not user_message:
+            continue
+        if user_message.lower() in ("exit", "quit"):
             print("\n  Exiting. Goodbye!\n")
             break
-        else:
-            print("\n  Invalid choice. Please enter 1, 2, 3 or 4.")
+
+        show_comparison = False
+        if user_message.lower().startswith("compare "):
+            show_comparison = True
+            user_message = user_message[len("compare "):].strip()
+
+        conversation_history.append({"role": "user", "content": user_message})
+        conversation_history[:] = conversation_history[-MAX_HISTORY:]
+
+        # If we're resuming after a clarification question, re-process the same task
+        if pending_task:
+            resolved = process_task(pending_task, user_message, conversation_history, retriever, show_comparison)
+            if resolved:
+                pending_task = None
+            continue
+
+        # Route the message to relevant task(s)
+        tasks = route_message(user_message, conversation_history)
+
+        if not tasks:
+            print("\n  This doesn't seem related to bed allocation, ER queue, or staffing.")
+            print("  Could you describe a hospital resource situation?")
+            continue
+
+        for task in tasks:
+            resolved = process_task(task, user_message, conversation_history, retriever, show_comparison)
+            if not resolved:
+                pending_task = task   # wait for clarification reply before continuing
+                break
+
+        conversation_history.append({
+            "role": "assistant",
+            "content": f"Processed: {', '.join(tasks)}",
+        })
 
 
 if __name__ == "__main__":

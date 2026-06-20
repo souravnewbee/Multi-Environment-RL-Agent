@@ -11,8 +11,18 @@ def discretize(state, task):
         patients = min(state["waiting_patients"], 30) // 10
         return (beds, patients)
     elif task == "er_queue":
-        emergency = min(state["emergency_queue"], 10) // 3
-        normal    = min(state["normal_queue"], 20) // 5
+        eq = state["emergency_queue"]
+        if eq == 0:
+            emergency = 0
+        elif eq <= 2:
+            emergency = 1
+        elif eq <= 5:
+            emergency = 2
+        elif eq <= 8:
+            emergency = 3
+        else:
+            emergency = 4
+        normal = min(state["normal_queue"], 20) // 5
         return (emergency, normal)
     elif task == "staff_allocation":
         doctors = min(state["available_doctors"], 15) // 5
@@ -40,26 +50,20 @@ def demo_bed_allocation():
     Q     = load_qtable("bed_allocation")
     if Q is None: return
     
-    env = HospitalEnv(task="bed_allocation")
+    env    = HospitalEnv(task="bed_allocation")
 
-    # Hard rules — override agent for edge cases
-    if waiting_patients == 0:
-        action = "No Action"
-        reason = "No patients waiting — nothing to do"
-    elif free_beds == 0:
+    # Hard rule — override agent if 0 beds
+    if free_beds == 0:
         action = "Transfer"
         reason = "No beds available, patient must be transferred"
     else:
         action = get_recommendation("bed_allocation", state, Q, env)
         if action == "Admit":
-            if free_beds > 5:
-                reason = "Sufficient beds available, admit the patient"
-            else:
-                reason = "Low bed count but admitting — monitor capacity"
+            reason = "Beds available, admit the patient"
         elif action == "Reject":
             reason = "No capacity, rejection necessary"
         elif action == "Transfer":
-            reason = "Low bed capacity, transfer to manage load efficiently"
+            reason = "Transfer to manage load efficiently"
     
     print(f"\n  ── Situation ──────────────────────────")
     print(f"  Free Beds        : {free_beds}")
@@ -77,7 +81,7 @@ def demo_er_queue():
     Q     = load_qtable("er_queue")
     if Q is None: return
     
-    env = HospitalEnv(task="er_queue")
+    env    = HospitalEnv(task="er_queue")
 
     # Hard rules — override agent for edge cases
     if emergency == 0 and normal == 0:
@@ -94,7 +98,7 @@ def demo_er_queue():
         if action == "Serve Emergency":
             reason = "Emergency cases take priority"
         elif action == "Serve Normal":
-            reason = "Normal queue overwhelmed — no emergency cases critical"
+            reason = "No emergency cases, serve normal queue"
 
     print(f"\n  ── Situation ──────────────────────────")
     print(f"  Emergency Queue  : {emergency}")
@@ -113,26 +117,20 @@ def demo_staff_allocation():
     if Q is None: return
     
     env    = HospitalEnv(task="staff_allocation")
-
-    # Hard rules — override agent for edge cases
-    if load == 0:
-        action = "Reduce Staff"
-        reason = "No patient load — reduce staffing to cut costs"
-    else:
-        action = get_recommendation("staff_allocation", state, Q, env)
-        if action == "Assign More Staff":
-            reason = "High patient load requires more doctors"
-        elif action == "Keep Current":
-            reason = "Load is balanced — maintain current staffing"
-        elif action == "Reduce Staff":
-            reason = "Low load — reduce cost by optimizing staffing"
+    action = get_recommendation("staff_allocation", state, Q, env)
     
     print(f"\n  ── Situation ──────────────────────────")
     print(f"  Available Doctors : {doctors}")
     print(f"  Patient Load      : {load}")
     print(f"  ── Recommendation ─────────────────────")
     print(f"  Action            : {action}")
-    print(f"  Reason            : {reason}")
+    
+    if action == "Assign More Staff":
+        print(f"  Reason            : High patient load needs more doctors")
+    elif action == "Keep Current":
+        print(f"  Reason            : Load is balanced, maintain staffing")
+    elif action == "Reduce Staff":
+        print(f"  Reason            : Low load, reduce cost by cutting staff")
 
 def main():
     print("\n")
