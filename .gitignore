@@ -5,3 +5,6 @@ __pycache__/
 *.npy__pycache__/ 
 *.pyc 
 "hospital_state.json" 
+"*.npy" 
+"hospital_state.json" 
+"training/qtables/" 
