@@ -3,17 +3,7 @@ import random
 
 
 class FinanceEnv:
-    """
-    Multi-task Finance simulation following the same pattern as HospitalEnv.
-
-    Three tasks mirror the Finance Domain table:
-        "trading"   -- Buy/Sell/Hold trading agent
-        "savings"   -- Personal savings management
-        "budget"    -- Budget allocation system
-
-    Each episode is one SHIFT_LENGTH of steps. State carries over between
-    steps so actions have real downstream consequences.
-    """
+    
 
     SHIFT_LENGTH = 60  # steps per episode
 
@@ -41,7 +31,7 @@ class FinanceEnv:
         else:
             raise ValueError(f"Unknown task: {task}")
 
-    # ── Reset: start of a new episode ─────────────────────────────────────────
+    # ── Reset: start of a new episode        
     def reset(self):
         self.t = 0
         self.done = False
@@ -74,7 +64,7 @@ class FinanceEnv:
 
         return self.state
 
-    # ── Step: one decision within the episode ─────────────────────────────────
+    # ── Step: one decision within the episode
     def step(self, action_index):
         action = self.actions[action_index]
 
@@ -89,7 +79,7 @@ class FinanceEnv:
         self.done = self.t >= self.SHIFT_LENGTH
         return self.state, reward, self.done, info
 
-    # ── Task 1: Trading Agent ──────────────────────────────────────────────────
+    # ── Task 1: Trading Agent       
     def _step_trading(self, action):
         trend  = self.state["price_trend"]
         shares = self.state["shares_held"]
@@ -162,7 +152,7 @@ class FinanceEnv:
         info["trend"]       = self.state["price_trend"]
         return reward, info
 
-    # ── Task 2: Personal Savings Management ───────────────────────────────────
+    # ── Task 2: Personal Savings Management 
     def _step_savings(self, action):
         income   = self.state["monthly_income"]
         savings  = self.state["current_savings"]
@@ -233,7 +223,7 @@ class FinanceEnv:
         info["savings"] = self.state["current_savings"]
         return reward, info
 
-    # ── Task 3: Budget Allocation System ──────────────────────────────────────
+    # ── Task 3: Budget Allocation System
     def _step_budget(self, action):
         total     = self.state["total_budget"]
         spent     = self.state["amount_spent"]

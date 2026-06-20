@@ -5,18 +5,16 @@ import os
 import random
 import numpy as np
 import matplotlib
-matplotlib.use("Agg")           # no display needed -- saves to PNG
+matplotlib.use("Agg")           
 import matplotlib.pyplot as plt
 
-# ── import both environments ──────────────────────────────────────────────────
+# import both environments
 sys.path.insert(0, os.path.dirname(__file__))
 
-from enviroments.finance_env  import FinanceEnv
+from environments.finance_env  import FinanceEnv
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# Q-Learning Agent
-# ═════════════════════════════════════════════════════════════════════════════
+
 class QLearningAgent:
     """
     Tabular Q-learning agent.
@@ -38,7 +36,7 @@ class QLearningAgent:
         self.Q   = np.zeros(shape)
         self.eps = self.EPS_START
 
-    # ── discretise a raw state dict into Q-table indices ─────────────────────
+    # ── discretise a raw state dict into Q-table indices 
     def discretise(self, state):
         values = list(state.values())
         indices = []
@@ -69,9 +67,9 @@ class QLearningAgent:
         self.eps = max(self.EPS_END, self.eps * self.EPS_DECAY)
 
 
-# ═════════════════════════════════════════════════════════════════════════════
+
 # Training loop
-# ═════════════════════════════════════════════════════════════════════════════
+
 def train(env, n_episodes=3000, verbose=True):
     info_env    = env.get_info()
     n_vars      = len(info_env["state_vars"])
@@ -103,9 +101,9 @@ def train(env, n_episodes=3000, verbose=True):
     return agent, ep_rewards
 
 
-# ═════════════════════════════════════════════════════════════════════════════
+
 # Evaluation: trained vs random
-# ═════════════════════════════════════════════════════════════════════════════
+
 def evaluate(env, agent, n_episodes=200):
     """Returns (trained_mean, random_mean)."""
     # Trained
@@ -133,9 +131,9 @@ def evaluate(env, agent, n_episodes=200):
     return np.mean(trained_scores), np.mean(random_scores)
 
 
-# ═════════════════════════════════════════════════════════════════════════════
+
 # Plot reward curves
-# ═════════════════════════════════════════════════════════════════════════════
+
 def smooth(arr, window=100):
     if len(arr) < window:
         return arr
@@ -174,9 +172,9 @@ def plot_all(results, filename="reward_curves.png"):
     print(f"\nReward curve plot saved → {filename}")
 
 
-# ═════════════════════════════════════════════════════════════════════════════
+
 # Main
-# ═════════════════════════════════════════════════════════════════════════════
+
 def main():
     EPISODES = 3000
 
@@ -207,7 +205,7 @@ def main():
         results.append((label, rewards, trained, baseline))
         summary.append((label, trained, baseline, improvement))
 
-    # ── Final summary table ───────────────────────────────────────────────────
+    # ── Final summary table   
     print(f"\n\n{'='*70}")
     print(f"{'FINAL RESULTS SUMMARY':^70}")
     print(f"{'='*70}")
@@ -217,7 +215,7 @@ def main():
         print(f"{label:<35} {tr:>+10.1f} {bl:>+10.1f} {imp:>+9.1f}%")
     print(f"{'='*70}")
 
-    # ── Reward curves ─────────────────────────────────────────────────────────
+    # ── Reward curves      
     plot_all(results, filename="reward_curves.png")
 
     print("\nDone! Files written:")
