@@ -1,0 +1,17 @@
+{
+  "bed_allocation": {
+    "free_beds": 8,
+    "waiting_patients": 0,
+    "last_updated": "initial"
+  },
+  "er_queue": {
+    "emergency_queue": 0,
+    "normal_queue": 0,
+    "last_updated": "initial"
+  },
+  "staff_allocation": {
+    "available_doctors": 6,
+    "patient_load": 0,
+    "last_updated": "initial"
+  }
+}
