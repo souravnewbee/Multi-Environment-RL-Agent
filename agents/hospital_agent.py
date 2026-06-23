@@ -1,10 +1,10 @@
 """
-UMORDA — Hospital Q-Learning Agent
-Pure Q-learning agent with:
-  - Epsilon-greedy exploration with exponential decay
-  - Convergence tracking (checks if Q-table stopped changing meaningfully)
-  - Per-episode reward logging for learning curves
-  - Supports save / load of Q-tables
+UMORDA — Hospital Q-Learning Agent (Gymnasium-compatible)
+Pure Q-learning agent with epsilon-greedy exploration, convergence tracking,
+and discretization bins matched to the REAL caps used inside hospital_env.py
+(previously these were mismatched -- e.g. waiting_patients can reach 60 but
+was being clamped to 30 before bucketing, losing resolution exactly where it
+matters most: the worst-case states).
 """
 
 import numpy as np
@@ -12,49 +12,48 @@ import random
 import os
 
 
-# ── Discretize continuous obs into bins ─────────────────────────────────────
+# ── Discretize continuous obs into bins (matches hospital_env.py's real caps) ─
 def discretize(obs, task):
-    """Map raw observation array → tuple index into Q-table."""
     if task == "bed_allocation":
-        beds     = int(np.clip(obs[0], 0, 20)) // 5          # bins: 0-4  (5 bins)
-        patients = int(np.clip(obs[1], 0, 30)) // 10         # bins: 0-3  (4 bins)
+        # free_beds: 0-20 -> 5 bins of 4
+        # waiting_patients: 0-60 (real cap) -> 6 bins of 10
+        beds     = int(np.clip(obs[0], 0, 20)) // 4
+        patients = int(np.clip(obs[1], 0, 60)) // 10
         return (beds, patients)
 
     elif task == "er_queue":
-        emergency = int(np.clip(obs[0], 0, 10)) // 3         # bins: 0-3  (4 bins)
-        normal    = int(np.clip(obs[1], 0, 20)) // 5         # bins: 0-4  (5 bins)
+        # emergency_queue: 0-20 (real cap) -> 5 bins of 4
+        # normal_queue: 0-40 (real cap) -> 5 bins of 8
+        emergency = int(np.clip(obs[0], 0, 20)) // 4
+        normal    = int(np.clip(obs[1], 0, 40)) // 8
         return (emergency, normal)
 
     elif task == "staff_allocation":
-        doctors = int(np.clip(obs[0], 1, 15)) // 5           # bins: 0-3  (4 bins)
-        load    = int(np.clip(obs[1], 0, 50)) // 15          # bins: 0-3  (4 bins)
+        # available_doctors: 1-20 -> 5 bins of 4
+        # patient_load: 0-80 (real cap) -> 5 bins of 16
+        doctors = int(np.clip(obs[0], 1, 20)) // 4
+        load    = int(np.clip(obs[1], 0, 80)) // 16
         return (doctors, load)
 
     raise ValueError(f"Unknown task: {task}")
 
 
+# Q-table shapes matching the bin counts above
+Q_SHAPES = {
+    "bed_allocation":   (6, 7, 3),    # beds 0-5, patients 0-6
+    "er_queue":         (6, 6, 2),    # emergency 0-5, normal 0-5
+    "staff_allocation": (6, 6, 3),    # doctors 0-5, load 0-5
+}
+
+
 class HospitalAgent:
-    """
-    Tabular Q-learning agent for UMORDA hospital tasks.
-
-    Hyperparameters
-    ---------------
-    alpha        : learning rate
-    gamma        : discount factor
-    epsilon      : initial exploration rate (1.0 = fully random)
-    epsilon_min  : floor for epsilon
-    epsilon_decay: multiplicative decay applied after every episode
-    q_shape      : shape of Q-table (state_dims... , n_actions)
-    task         : which hospital sub-task this agent handles
-    """
-
     def __init__(
         self,
         task,
         q_shape,
         n_actions,
         alpha=0.1,
-        gamma=0.97,
+        gamma=0.95,
         epsilon=1.0,
         epsilon_min=0.01,
         epsilon_decay=0.9995,
@@ -67,64 +66,55 @@ class HospitalAgent:
         self.epsilon_min   = epsilon_min
         self.epsilon_decay = epsilon_decay
 
-        # Q-table initialised to small random values to break ties
         self.Q = np.random.uniform(low=-0.01, high=0.01, size=q_shape)
 
-        # Logging
-        self.episode_rewards   = []   # total reward per episode
-        self.episode_epsilons  = []   # epsilon value per episode
-        self.convergence_delta = []   # mean |Q change| per episode
+        self.episode_rewards   = []
+        self.episode_epsilons  = []
+        self.convergence_delta = []
 
-    # ── Action selection ─────────────────────────────────────────────────────
     def select_action(self, obs):
-        """Epsilon-greedy: explore randomly or exploit best known action."""
         if random.random() < self.epsilon:
             return random.randint(0, self.n_actions - 1)
         s = discretize(obs, self.task)
         return int(np.argmax(self.Q[s]))
 
-    # ── Q-table update (single transition) ───────────────────────────────────
     def update(self, obs, action, reward, next_obs, done):
-        """Standard Q-learning (off-policy TD update)."""
         s  = discretize(obs,      self.task)
         ns = discretize(next_obs, self.task)
 
-        current_q  = self.Q[s][action]
-        target_q   = reward + (0.0 if done else self.gamma * np.max(self.Q[ns]))
-        td_error   = target_q - current_q
-        old_q      = self.Q[s][action]
+        current_q = self.Q[s][action]
+        target_q  = reward + (0.0 if done else self.gamma * np.max(self.Q[ns]))
+        old_q     = self.Q[s][action]
+        self.Q[s][action] += self.alpha * (target_q - current_q)
 
-        self.Q[s][action] += self.alpha * td_error
+        return abs(self.Q[s][action] - old_q)
 
-        return abs(self.Q[s][action] - old_q)   # return magnitude of change
-
-    # ── Epsilon decay (call once per episode) ────────────────────────────────
     def decay_epsilon(self):
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
-    # ── Log episode ──────────────────────────────────────────────────────────
     def log_episode(self, total_reward, mean_delta):
         self.episode_rewards.append(total_reward)
         self.episode_epsilons.append(self.epsilon)
         self.convergence_delta.append(mean_delta)
 
-    # ── Convergence check ────────────────────────────────────────────────────
-    def is_converged(self, window=500, threshold=0.001):
+    def is_converged(self, window=1000, stability_ratio=0.05):
         """
-        Returns True if the mean Q-change over the last `window` episodes
-        has dropped below `threshold` — i.e. the agent has stabilised.
+        Stochastic environment -> ΔQ never decays to zero, it stabilises
+        around a noisy-but-bounded mean. Convergence here means STABILITY:
+        compare mean ΔQ of the most recent window against the previous window.
         """
-        if len(self.convergence_delta) < window:
+        if len(self.convergence_delta) < window * 2:
             return False
-        recent = self.convergence_delta[-window:]
-        return float(np.mean(recent)) < threshold
+        recent   = np.mean(self.convergence_delta[-window:])
+        previous = np.mean(self.convergence_delta[-2 * window:-window])
+        if previous == 0:
+            return recent == 0
+        return abs(recent - previous) / previous < stability_ratio
 
-    # ── Best action (greedy, no exploration) ─────────────────────────────────
     def best_action(self, obs):
         s = discretize(obs, self.task)
         return int(np.argmax(self.Q[s]))
 
-    # ── Save / Load ──────────────────────────────────────────────────────────
     def save(self, path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         np.save(path, self.Q)
@@ -134,7 +124,6 @@ class HospitalAgent:
             raise FileNotFoundError(f"Q-table not found: {path}")
         self.Q = np.load(path)
 
-    # ── Summary ──────────────────────────────────────────────────────────────
     def summary(self):
         if not self.episode_rewards:
             print("  No training data yet.")
