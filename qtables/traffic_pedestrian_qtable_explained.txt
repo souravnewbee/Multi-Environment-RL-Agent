@@ -1,0 +1,811 @@
+
+===========================================================================
+  PEDESTRIAN Q-TABLE — Pedestrian Crossing Control (FIXED v2)
+  State variables: waiting_pedestrians, waiting_vehicles,
+                   ped_max_wait, veh_max_wait, current_phase, phase_elapsed
+  Actions: [0] Allow Pedestrians   [1] Allow Vehicles
+  Safety : If pedestrian waits > 6 steps → FORCED pedestrian phase
+===========================================================================
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 0 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    1.000
+  │  Q[Allow Vehs]:   13.336
+  │  DECISION     : ★ Allow Vehicles  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 0 steps
+  │  Current phase: Pedestrian phase (active 1 steps)
+  │  Q[Allow Peds]:    3.403
+  │  Q[Allow Vehs]:    0.195
+  │  DECISION     : ★ Allow Pedestrians  (MODERATE confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.143
+  │  Q[Allow Vehs]:    8.594
+  │  DECISION     : ★ Allow Vehicles  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 1 steps)
+  │  Q[Allow Peds]:    0.095
+  │  Q[Allow Vehs]:    4.635
+  │  DECISION     : ★ Allow Vehicles  (MODERATE confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:   11.482
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 3 steps)
+  │  Q[Allow Peds]:    5.322
+  │  Q[Allow Vehs]:    0.836
+  │  DECISION     : ★ Allow Pedestrians  (MODERATE confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 1 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:   -0.191
+  │  Q[Allow Vehs]:   13.117
+  │  DECISION     : ★ Allow Vehicles  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 1 steps
+  │  Current phase: Pedestrian phase (active 1 steps)
+  │  Q[Allow Peds]:    0.347
+  │  Q[Allow Vehs]:    9.358
+  │  DECISION     : ★ Allow Vehicles  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 1 steps
+  │  Current phase: Pedestrian phase (active 2 steps)
+  │  Q[Allow Peds]:    0.672
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 1 steps
+  │  Current phase: Pedestrian phase (active 4 steps)
+  │  Q[Allow Peds]:    0.595
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 1 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    6.513
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 1 steps
+  │  Current phase: Vehicle phase (active 1 steps)
+  │  Q[Allow Peds]:    0.129
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 1 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:    0.595
+  │  Q[Allow Vehs]:    4.881
+  │  DECISION     : ★ Allow Vehicles  (MODERATE confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 2 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    0.595
+  │  Q[Allow Vehs]:    3.941
+  │  DECISION     : ★ Allow Vehicles  (MODERATE confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 2 steps
+  │  Current phase: Pedestrian phase (active 1 steps)
+  │  Q[Allow Peds]:    0.595
+  │  Q[Allow Vehs]:    0.757
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 2 steps
+  │  Current phase: Pedestrian phase (active 2 steps)
+  │  Q[Allow Peds]:    0.595
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 2 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    1.000
+  │  Q[Allow Vehs]:    2.064
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 2 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:    1.311
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 3 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    0.595
+  │  Q[Allow Vehs]:    1.299
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 3 steps
+  │  Current phase: Pedestrian phase (active 1 steps)
+  │  Q[Allow Peds]:    0.690
+  │  Q[Allow Vehs]:    0.654
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 3 steps
+  │  Current phase: Pedestrian phase (active 2 steps)
+  │  Q[Allow Peds]:    0.807
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 3 steps
+  │  Current phase: Pedestrian phase (active 3 steps)
+  │  Q[Allow Peds]:    0.595
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 3 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.114
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 4 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    0.595
+  │  Q[Allow Vehs]:    0.705
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 4 steps
+  │  Current phase: Pedestrian phase (active 1 steps)
+  │  Q[Allow Peds]:    0.595
+  │  Q[Allow Vehs]:    0.795
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 4 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.181
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 4 steps
+  │  Current phase: Vehicle phase (active 1 steps)
+  │  Q[Allow Peds]:    1.192
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 4 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:    0.595
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 5 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    0.595
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 5 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:    0.595
+  │  Q[Allow Vehs]:    1.445
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 7 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    0.295
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 7 steps
+  │  Current phase: Pedestrian phase (active 1 steps)
+  │  Q[Allow Peds]:    0.295
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 7 steps
+  │  Current phase: Pedestrian phase (active 2 steps)
+  │  Q[Allow Peds]:    0.295
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 7 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:   -0.138
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 7 steps
+  │  Current phase: Vehicle phase (active 1 steps)
+  │  Q[Allow Peds]:    0.061
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 8 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.034
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 8 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:    0.295
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 9 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    0.662
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 0 steps | Vehs waited 9 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:   -0.205
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 0 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    5.618
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (MODERATE confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    1.538
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 1 steps)
+  │  Q[Allow Peds]:    0.313
+  │  Q[Allow Vehs]:   13.799
+  │  DECISION     : ★ Allow Vehicles  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:    0.993
+  │  Q[Allow Vehs]:   15.803
+  │  DECISION     : ★ Allow Vehicles  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 3 steps)
+  │  Q[Allow Peds]:    4.567
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (MODERATE confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 1 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    9.205
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 1 steps
+  │  Current phase: Pedestrian phase (active 2 steps)
+  │  Q[Allow Peds]:    1.644
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 1 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    5.537
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (MODERATE confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 2 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    3.228
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (MODERATE confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 2 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.319
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 2 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:    0.853
+  │  Q[Allow Vehs]:    2.287
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 3 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    0.795
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 3 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:    0.795
+  │  Q[Allow Vehs]:    1.145
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 4 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    0.795
+  │  Q[Allow Vehs]:    0.795
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 4 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    1.000
+  │  Q[Allow Vehs]:    1.295
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 4 steps
+  │  Current phase: Vehicle phase (active 1 steps)
+  │  Q[Allow Peds]:    0.322
+  │  Q[Allow Vehs]:    1.337
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 4 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:    0.936
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 5 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    0.795
+  │  Q[Allow Vehs]:    0.895
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 5 steps
+  │  Current phase: Pedestrian phase (active 2 steps)
+  │  Q[Allow Peds]:    1.000
+  │  Q[Allow Vehs]:    1.445
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 5 steps
+  │  Current phase: Vehicle phase (active 1 steps)
+  │  Q[Allow Peds]:    1.000
+  │  Q[Allow Vehs]:    1.445
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 6 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    0.795
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 6 steps
+  │  Current phase: Pedestrian phase (active 2 steps)
+  │  Q[Allow Peds]:    0.910
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 6 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.464
+  │  Q[Allow Vehs]:    2.131
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 7 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    0.635
+  │  Q[Allow Vehs]:    1.245
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 7 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:    0.495
+  │  Q[Allow Vehs]:    1.745
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 8 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:    0.495
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 9 steps
+  │  Current phase: Pedestrian phase (active 1 steps)
+  │  Q[Allow Peds]:    1.147
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 9 steps
+  │  Current phase: Pedestrian phase (active 3 steps)
+  │  Q[Allow Peds]:    0.495
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 1 steps | Vehs waited 9 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.180
+  │  Q[Allow Vehs]:    2.152
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.518
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 1 steps)
+  │  Q[Allow Peds]:    0.638
+  │  Q[Allow Vehs]:    0.760
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:   19.507
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 3 steps)
+  │  Q[Allow Peds]:    4.731
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (MODERATE confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 4 steps)
+  │  Q[Allow Peds]:    1.400
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 1 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    4.777
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (MODERATE confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 1 steps
+  │  Current phase: Vehicle phase (active 1 steps)
+  │  Q[Allow Peds]:    0.518
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 1 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:    1.000
+  │  Q[Allow Vehs]:    0.845
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 2 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    3.231
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (MODERATE confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 3 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    1.041
+  │  Q[Allow Vehs]:    0.645
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 5 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    1.081
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 5 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.791
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 6 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.749
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 7 steps
+  │  Current phase: Pedestrian phase (active 1 steps)
+  │  Q[Allow Peds]:    0.839
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 7 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.303
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 8 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    0.695
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 8 steps
+  │  Current phase: Pedestrian phase (active 2 steps)
+  │  Q[Allow Peds]:    0.695
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 8 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.448
+  │  Q[Allow Vehs]:    2.080
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 8 steps
+  │  Current phase: Vehicle phase (active 1 steps)
+  │  Q[Allow Peds]:    0.195
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 9 steps
+  │  Current phase: Pedestrian phase (active 1 steps)
+  │  Q[Allow Peds]:    1.288
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 2 steps | Vehs waited 9 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.291
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 3 steps | Vehs waited 0 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    1.195
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 3 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.699
+  │  Q[Allow Vehs]:    0.695
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 3 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 1 steps)
+  │  Q[Allow Peds]:    0.695
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 3 steps | Vehs waited 0 steps
+  │  Current phase: Vehicle phase (active 2 steps)
+  │  Q[Allow Peds]:    1.594
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 3 steps | Vehs waited 1 steps
+  │  Current phase: Pedestrian phase (active 1 steps)
+  │  Q[Allow Peds]:    1.406
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 3 steps | Vehs waited 1 steps
+  │  Current phase: Pedestrian phase (active 2 steps)
+  │  Q[Allow Peds]:    1.195
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 3 steps | Vehs waited 2 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    3.311
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (MODERATE confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 3 steps | Vehs waited 3 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.880
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 3 steps | Vehs waited 4 steps
+  │  Current phase: Pedestrian phase (active 0 steps)
+  │  Q[Allow Peds]:    1.411
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 3 steps | Vehs waited 4 steps
+  │  Current phase: Pedestrian phase (active 1 steps)
+  │  Q[Allow Peds]:    2.062
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Pedestrians  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Pedestrians=0, Vehicles=0 | ✅ Safe
+  │  Situation    : Empty crossing
+  │  Wait times   : Peds waited 3 steps | Vehs waited 4 steps
+  │  Current phase: Vehicle phase (active 0 steps)
+  │  Q[Allow Peds]:    0.695
+  │  Q[Allow Vehs]:    1.000
+  │  DECISION     : ★ Allow Vehicles  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+
+  Total trained states shown: 100
+===========================================================================

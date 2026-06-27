@@ -1,0 +1,813 @@
+
+===========================================================================
+  INTERSECTION Q-TABLE — Single Traffic Intersection Control (FIXED v2)
+  State variables: cars_NS, cars_EW, current_phase,
+                   phase_elapsed, max_wait_NS, max_wait_EW
+  Actions: [0] Green NS   [1] Green EW
+  Safety : Hard override if any direction waits > 8 steps
+===========================================================================
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 1 steps
+  │  Urgency      : EW more urgent (waited 1 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    2.091
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 4 steps
+  │  Urgency      : EW more urgent (waited 4 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.919
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 6 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 6 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.053
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 8 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 8 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.895
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 1 steps | EW waited 1 steps
+  │  Urgency      : Equal urgency (both waited 1 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.191
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 1 steps | EW waited 2 steps
+  │  Urgency      : EW more urgent (waited 2 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.252
+  │  Q[Green EW]  :    0.565
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 1 steps | EW waited 4 steps
+  │  Urgency      : EW more urgent (waited 4 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.925
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 1 steps | EW waited 5 steps
+  │  Urgency      : EW more urgent (waited 5 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.928
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 1 steps | EW waited 7 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 7 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.101
+  │  Q[Green EW]  :    0.939
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 1 steps | EW waited 9 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 9 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.915
+  │  Q[Green EW]  :    1.210
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 2 steps | EW waited 1 steps
+  │  Urgency      : NS more urgent (waited 2 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.169
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 2 steps | EW waited 2 steps
+  │  Urgency      : Equal urgency (both waited 2 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.037
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 2 steps | EW waited 4 steps
+  │  Urgency      : EW more urgent (waited 4 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.055
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 2 steps | EW waited 9 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 9 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.885
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 3 steps | EW waited 0 steps
+  │  Urgency      : NS more urgent (waited 3 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    2.108
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 3 steps | EW waited 1 steps
+  │  Urgency      : NS more urgent (waited 3 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.218
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 3 steps | EW waited 2 steps
+  │  Urgency      : NS more urgent (waited 3 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.165
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 3 steps | EW waited 4 steps
+  │  Urgency      : EW more urgent (waited 4 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.047
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 3 steps | EW waited 5 steps
+  │  Urgency      : EW more urgent (waited 5 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.995
+  │  Q[Green EW]  :    0.703
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 3 steps | EW waited 8 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 8 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.629
+  │  Q[Green EW]  :    0.805
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 3 steps | EW waited 9 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 9 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.855
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 4 steps | EW waited 1 steps
+  │  Urgency      : NS more urgent (waited 4 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.213
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 4 steps | EW waited 2 steps
+  │  Urgency      : NS more urgent (waited 4 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.287
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 4 steps | EW waited 3 steps
+  │  Urgency      : NS more urgent (waited 4 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.105
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 4 steps | EW waited 5 steps
+  │  Urgency      : EW more urgent (waited 5 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.045
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 4 steps | EW waited 8 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 8 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.775
+  │  Q[Green EW]  :    0.775
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 5 steps | EW waited 0 steps
+  │  Urgency      : NS more urgent (waited 5 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.403
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 5 steps | EW waited 2 steps
+  │  Urgency      : NS more urgent (waited 5 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.185
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 5 steps | EW waited 3 steps
+  │  Urgency      : NS more urgent (waited 5 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.155
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 5 steps | EW waited 4 steps
+  │  Urgency      : NS more urgent (waited 5 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.396
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 5 steps | EW waited 5 steps
+  │  Urgency      : Equal urgency (both waited 5 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.190
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 5 steps | EW waited 6 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 6 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.275
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 5 steps | EW waited 7 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 7 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.235
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 5 steps | EW waited 9 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 9 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.795
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 6 steps ⚠ NEAR LIMIT! | EW waited 0 steps
+  │  Urgency      : NS more urgent (waited 6 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.295
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 6 steps ⚠ NEAR LIMIT! | EW waited 1 steps
+  │  Urgency      : NS more urgent (waited 6 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.535
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 6 steps ⚠ NEAR LIMIT! | EW waited 2 steps
+  │  Urgency      : NS more urgent (waited 6 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.497
+  │  Q[Green EW]  :   -0.385
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 6 steps ⚠ NEAR LIMIT! | EW waited 3 steps
+  │  Urgency      : NS more urgent (waited 6 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.278
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 6 steps ⚠ NEAR LIMIT! | EW waited 4 steps
+  │  Urgency      : NS more urgent (waited 6 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.000
+  │  Q[Green EW]  :   -0.285
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 6 steps ⚠ NEAR LIMIT! | EW waited 5 steps
+  │  Urgency      : NS more urgent (waited 6 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.327
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 6 steps ⚠ NEAR LIMIT! | EW waited 6 steps ⚠ NEAR LIMIT!
+  │  Urgency      : Equal urgency (both waited 6 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.433
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 6 steps ⚠ NEAR LIMIT! | EW waited 7 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 7 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.285
+  │  Q[Green EW]  :   -0.135
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 6 steps ⚠ NEAR LIMIT! | EW waited 8 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 8 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :   -0.085
+  │  Q[Green EW]  :   -0.085
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 7 steps ⚠ NEAR LIMIT! | EW waited 0 steps
+  │  Urgency      : NS more urgent (waited 7 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.345
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 7 steps ⚠ NEAR LIMIT! | EW waited 1 steps
+  │  Urgency      : NS more urgent (waited 7 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.380
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 7 steps ⚠ NEAR LIMIT! | EW waited 3 steps
+  │  Urgency      : NS more urgent (waited 7 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.803
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 7 steps ⚠ NEAR LIMIT! | EW waited 5 steps
+  │  Urgency      : NS more urgent (waited 7 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.617
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 7 steps ⚠ NEAR LIMIT! | EW waited 6 steps ⚠ NEAR LIMIT!
+  │  Urgency      : NS more urgent (waited 7 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.365
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 7 steps ⚠ NEAR LIMIT! | EW waited 8 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 8 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :   -0.115
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 7 steps ⚠ NEAR LIMIT! | EW waited 9 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 9 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :   -0.065
+  │  Q[Green EW]  :    0.095
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 8 steps ⚠ NEAR LIMIT! | EW waited 4 steps
+  │  Urgency      : NS more urgent (waited 8 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.346
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 8 steps ⚠ NEAR LIMIT! | EW waited 5 steps
+  │  Urgency      : NS more urgent (waited 8 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.245
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 8 steps ⚠ NEAR LIMIT! | EW waited 6 steps ⚠ NEAR LIMIT!
+  │  Urgency      : NS more urgent (waited 8 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.415
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 8 steps ⚠ NEAR LIMIT! | EW waited 7 steps ⚠ NEAR LIMIT!
+  │  Urgency      : NS more urgent (waited 8 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.385
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 8 steps ⚠ NEAR LIMIT! | EW waited 9 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 9 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.325
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 9 steps ⚠ NEAR LIMIT! | EW waited 0 steps
+  │  Urgency      : NS more urgent (waited 9 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.846
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 9 steps ⚠ NEAR LIMIT! | EW waited 2 steps
+  │  Urgency      : NS more urgent (waited 9 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.783
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 9 steps ⚠ NEAR LIMIT! | EW waited 3 steps
+  │  Urgency      : NS more urgent (waited 9 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.609
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 9 steps ⚠ NEAR LIMIT! | EW waited 5 steps
+  │  Urgency      : NS more urgent (waited 9 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    1.301
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 9 steps ⚠ NEAR LIMIT! | EW waited 6 steps ⚠ NEAR LIMIT!
+  │  Urgency      : NS more urgent (waited 9 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.465
+  │  Q[Green EW]  :    0.465
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 9 steps ⚠ NEAR LIMIT! | EW waited 9 steps ⚠ NEAR LIMIT!
+  │  Urgency      : Equal urgency (both waited 9 steps)
+  │  Current phase: Green NS active (active for 0 steps)
+  │  Q[Green NS]  :    0.375
+  │  Q[Green EW]  :    0.387
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 1 steps
+  │  Urgency      : EW more urgent (waited 1 steps)
+  │  Current phase: Green NS active (active for 1 steps)
+  │  Q[Green NS]  :    0.965
+  │  Q[Green EW]  :    1.672
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 3 steps
+  │  Urgency      : EW more urgent (waited 3 steps)
+  │  Current phase: Green NS active (active for 1 steps)
+  │  Q[Green NS]  :    0.905
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 4 steps
+  │  Urgency      : EW more urgent (waited 4 steps)
+  │  Current phase: Green NS active (active for 1 steps)
+  │  Q[Green NS]  :    0.875
+  │  Q[Green EW]  :    0.695
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 5 steps
+  │  Urgency      : EW more urgent (waited 5 steps)
+  │  Current phase: Green NS active (active for 1 steps)
+  │  Q[Green NS]  :    1.174
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 1 steps | EW waited 1 steps
+  │  Urgency      : Equal urgency (both waited 1 steps)
+  │  Current phase: Green NS active (active for 1 steps)
+  │  Q[Green NS]  :    1.243
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 1 steps | EW waited 4 steps
+  │  Urgency      : EW more urgent (waited 4 steps)
+  │  Current phase: Green NS active (active for 1 steps)
+  │  Q[Green NS]  :    0.925
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 4 steps | EW waited 2 steps
+  │  Urgency      : NS more urgent (waited 4 steps)
+  │  Current phase: Green NS active (active for 1 steps)
+  │  Q[Green NS]  :    1.135
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 4 steps | EW waited 6 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 6 steps)
+  │  Current phase: Green NS active (active for 1 steps)
+  │  Q[Green NS]  :    0.215
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 5 steps | EW waited 5 steps
+  │  Urgency      : Equal urgency (both waited 5 steps)
+  │  Current phase: Green NS active (active for 1 steps)
+  │  Q[Green NS]  :    1.095
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 5 steps | EW waited 6 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 6 steps)
+  │  Current phase: Green NS active (active for 1 steps)
+  │  Q[Green NS]  :    0.265
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 5 steps | EW waited 8 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 8 steps)
+  │  Current phase: Green NS active (active for 1 steps)
+  │  Q[Green NS]  :    0.745
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 6 steps ⚠ NEAR LIMIT! | EW waited 9 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 9 steps)
+  │  Current phase: Green NS active (active for 1 steps)
+  │  Q[Green NS]  :   -0.035
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 7 steps ⚠ NEAR LIMIT! | EW waited 5 steps
+  │  Urgency      : NS more urgent (waited 7 steps)
+  │  Current phase: Green NS active (active for 1 steps)
+  │  Q[Green NS]  :    1.195
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 8 steps ⚠ NEAR LIMIT! | EW waited 9 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 9 steps)
+  │  Current phase: Green NS active (active for 1 steps)
+  │  Q[Green NS]  :    0.325
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 4 steps
+  │  Urgency      : EW more urgent (waited 4 steps)
+  │  Current phase: Green NS active (active for 2 steps)
+  │  Q[Green NS]  :    0.875
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 1 steps | EW waited 5 steps
+  │  Urgency      : EW more urgent (waited 5 steps)
+  │  Current phase: Green NS active (active for 2 steps)
+  │  Q[Green NS]  :    0.895
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 2 steps | EW waited 7 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 7 steps)
+  │  Current phase: Green NS active (active for 2 steps)
+  │  Q[Green NS]  :    0.085
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 6 steps ⚠ NEAR LIMIT! | EW waited 3 steps
+  │  Urgency      : NS more urgent (waited 6 steps)
+  │  Current phase: Green NS active (active for 2 steps)
+  │  Q[Green NS]  :    1.205
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 8 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 8 steps)
+  │  Current phase: Green NS active (active for 3 steps)
+  │  Q[Green NS]  :    1.395
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 0 steps
+  │  Urgency      : Equal urgency (both waited 0 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    1.122
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 1 steps
+  │  Urgency      : EW more urgent (waited 1 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    1.000
+  │  Q[Green EW]  :    1.135
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 2 steps
+  │  Urgency      : EW more urgent (waited 2 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    0.435
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 4 steps
+  │  Urgency      : EW more urgent (waited 4 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    0.375
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 6 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 6 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :   -0.485
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 7 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 7 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    1.000
+  │  Q[Green EW]  :    1.345
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 0 steps | EW waited 9 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 9 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    1.541
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 1 steps | EW waited 1 steps
+  │  Urgency      : Equal urgency (both waited 1 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    0.515
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 1 steps | EW waited 3 steps
+  │  Urgency      : EW more urgent (waited 3 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    0.507
+  │  Q[Green EW]  :    1.115
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 1 steps | EW waited 5 steps
+  │  Urgency      : EW more urgent (waited 5 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    0.400
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 1 steps | EW waited 8 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 8 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    1.365
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 2 steps | EW waited 0 steps
+  │  Urgency      : NS more urgent (waited 2 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    0.595
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 2 steps | EW waited 1 steps
+  │  Urgency      : NS more urgent (waited 2 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    0.565
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 2 steps | EW waited 3 steps
+  │  Urgency      : EW more urgent (waited 3 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    0.504
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 2 steps | EW waited 4 steps
+  │  Urgency      : EW more urgent (waited 4 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    0.475
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 2 steps | EW waited 5 steps
+  │  Urgency      : EW more urgent (waited 5 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    0.445
+  │  Q[Green EW]  :    1.185
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 2 steps | EW waited 6 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 6 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :   -0.385
+  │  Q[Green EW]  :    1.235
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 2 steps | EW waited 7 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 7 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :   -0.415
+  │  Q[Green EW]  :    1.285
+  │  DECISION     : ★ Keep / Switch to Green EW  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 2 steps | EW waited 8 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 8 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    1.335
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ NS=0 cars, EW=0 cars | Empty road
+  │  Wait times   : NS waited 2 steps | EW waited 9 steps ⚠ NEAR LIMIT!
+  │  Urgency      : EW more urgent (waited 9 steps)
+  │  Current phase: Green EW active (active for 0 steps)
+  │  Q[Green NS]  :    1.732
+  │  Q[Green EW]  :    1.000
+  │  DECISION     : ★ Keep / Switch to Green NS  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+
+  ... showing 100 states. More exist in full Q-table.
+
+  Total trained states shown: 100
+===========================================================================

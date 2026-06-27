@@ -1,214 +1,209 @@
 # =============================================================================
-# UMORDA — Traffic Domain Interactive Demo
+# UMORDA — Traffic Domain Interactive Demo (FIXED v2)
 # File: demo_traffic.py
-# Usage: python demo_traffic.py
 # =============================================================================
 
-import sys
-import os
-import numpy as np
-
+import sys, os, numpy as np
 sys.path.append(os.path.dirname(__file__))
-
 from environments.traffic_env import TrafficEnv
 from agents.traffic_agent import TrafficAgent
 
 QTABLE_DIR = os.path.join(os.path.dirname(__file__), "qtables")
 
-
-# =============================================================================
-# Helper — load agent
-# =============================================================================
-def load_agent(task: str) -> TrafficAgent:
+def load_agent(task):
     env   = TrafficEnv(task=task)
-    agent = TrafficAgent(
-        n_states=env.observation_space.n,
-        n_actions=env.action_space.n,
-        epsilon=0.0,   # No exploration during demo
-    )
-    path = os.path.join(QTABLE_DIR, f"traffic_{task}_qtable.npy")
+    agent = TrafficAgent(env.observation_space.n, env.action_space.n, epsilon=0.0)
+    path  = os.path.join(QTABLE_DIR, f"traffic_{task}_qtable.npy")
     if not os.path.exists(path):
-        print(f"\n  [!] Q-Table not found at {path}")
-        print(f"      Please run:  python training/train_traffic.py  first!\n")
+        print(f"\n  [!] Q-Table not found. Run training/train_traffic.py first!\n")
         sys.exit(1)
     agent.load_qtable(path)
     return agent, env
 
-
 # =============================================================================
-# Demo — Intersection
+# INTERSECTION DEMO
 # =============================================================================
 def demo_intersection():
-    print("\n" + "="*60)
-    print("  DEMO: Single Traffic Intersection Control")
-    print("="*60)
-    print("  State variables: cars_N, cars_S, cars_E, cars_W (0-4)")
-    print("  Actions: 0=Green NS | 1=Green EW")
+    print("\n" + "="*65)
+    print("  DEMO: Single Traffic Intersection Control (FIXED v2)")
+    print("="*65)
+    print("  Inputs needed:")
+    print("    cars_NS      : Total cars from North+South (0-9)")
+    print("    cars_EW      : Total cars from East+West   (0-9)")
+    print("    current_phase: Current signal (0=GreenNS, 1=GreenEW)")
+    print("    phase_elapsed: Steps signal has been active (0-9)")
+    print("    wait_NS      : How long NS has been waiting (0-9)")
+    print("    wait_EW      : How long EW has been waiting (0-9)")
+    print("\n  Safety rule: If any direction waits ≥ 8 steps → FORCED green!")
 
     agent, env = load_agent("intersection")
-    cfg = TrafficEnv.TASK_CONFIG["intersection"]
-    agent.print_qtable(cfg["action_meanings"], title="INTERSECTION Q-TABLE (Top Rows)")
+    actions    = TrafficEnv.TASK_CONFIG["intersection"]["action_meanings"]
+    limit      = TrafficEnv.TASK_CONFIG["intersection"]["max_wait_limit"]
 
     while True:
-        print("\n  Enter traffic state (or 'q' to go back):")
+        print("\n  Enter state (or 'q' to go back):")
         try:
-            inp = input("  cars_N cars_S cars_E cars_W (e.g. 3 1 2 4): ").strip()
-            if inp.lower() == 'q':
-                break
-            vals = list(map(int, inp.split()))
-            assert len(vals) == 4
-            assert all(0 <= v <= 4 for v in vals)
-        except Exception:
-            print("  [!] Please enter 4 integers between 0 and 4.")
+            inp = input("  cars_NS cars_EW phase elapsed wait_NS wait_EW: ").strip()
+            if inp.lower() == 'q': break
+            v = list(map(int, inp.split()))
+            assert len(v) == 6
+        except:
+            print("  [!] Enter 6 integers. Example: 5 2 0 3 4 1")
             continue
 
-        raw_state = vals
-        state = env._encode_state(raw_state)
-        action = agent.best_action(state)
+        cars_NS, cars_EW, phase, elapsed, wait_NS, wait_EW = v
+        state          = env._encode_state(v)
+        env._raw_state = v   # set raw state so safety override can read it
+        forced         = env._safety_override(agent.best_action(state))
+        action         = forced
         q_vals = agent.q_table[state]
 
-        print(f"\n  ┌─────────────────────────────────────────┐")
-        print(f"  │  State  : N={vals[0]} S={vals[1]} E={vals[2]} W={vals[3]}              │")
-        print(f"  │  Q-Values: GreenNS={q_vals[0]:+.3f}  GreenEW={q_vals[1]:+.3f}  │")
-        print(f"  │  → BEST ACTION: {cfg['action_meanings'][action]:<26}│")
-        print(f"  └─────────────────────────────────────────┘")
+        print(f"\n  ┌─────────────────────────────────────────────────┐")
+        print(f"  │  NS: {cars_NS} cars (waited {wait_NS} steps)                    │")
+        print(f"  │  EW: {cars_EW} cars (waited {wait_EW} steps)                    │")
+        print(f"  │  Current phase: {'GreenNS' if phase==0 else 'GreenEW'} (active {elapsed} steps)       │")
+        print(f"  │                                                 │")
+        print(f"  │  Q[Green NS]: {q_vals[0]:>8.3f}                          │")
+        print(f"  │  Q[Green EW]: {q_vals[1]:>8.3f}                          │")
 
-        ns = vals[0] + vals[1]
-        ew = vals[2] + vals[3]
-        expected = "Green NS" if ns >= ew else "Green EW"
-        chosen   = cfg["action_meanings"][action]
-        match = "✅ CORRECT" if expected.lower() in chosen.lower() else "⚠️  CHECK"
-        print(f"  Logic check: NS={ns} cars vs EW={ew} cars → {match}")
+        if wait_NS >= limit or wait_EW >= limit:
+            print(f"  │  ⚠ SAFETY OVERRIDE TRIGGERED!                   │")
+        print(f"  │  → DECISION: ★ {actions[action]:<33}│")
+        print(f"  └─────────────────────────────────────────────────┘")
 
+        # Logic check
+        if wait_NS >= limit:
+            print(f"  Safety check: 🚨 NS waited {wait_NS} steps — FORCED Green NS!")
+        elif wait_EW >= limit:
+            print(f"  Safety check: 🚨 EW waited {wait_EW} steps — FORCED Green EW!")
+        elif wait_NS > wait_EW:
+            exp = "Green NS"
+            print(f"  Logic check : NS waited longer ({wait_NS} vs {wait_EW}) → {'✅' if exp in actions[action] else '⚠'} {actions[action]}")
+        elif wait_EW > wait_NS:
+            exp = "Green EW"
+            print(f"  Logic check : EW waited longer ({wait_EW} vs {wait_NS}) → {'✅' if exp in actions[action] else '⚠'} {actions[action]}")
+        else:
+            print(f"  Logic check : Equal wait — agent uses car count to decide ✅")
 
 # =============================================================================
-# Demo — Pedestrian
+# PEDESTRIAN DEMO
 # =============================================================================
 def demo_pedestrian():
-    print("\n" + "="*60)
-    print("  DEMO: Pedestrian Crossing Control")
-    print("="*60)
-    print("  State variables: waiting_pedestrians (0-5), waiting_vehicles (0-5)")
-    print("  Actions: 0=Allow Pedestrians | 1=Allow Vehicles")
+    print("\n" + "="*65)
+    print("  DEMO: Pedestrian Crossing Control (FIXED v2)")
+    print("="*65)
+    print("  Inputs needed:")
+    print("    peds         : Waiting pedestrians (0-9)")
+    print("    vehs         : Waiting vehicles    (0-9)")
+    print("    ped_wait     : How long peds waited (0-9)")
+    print("    veh_wait     : How long vehs waited (0-9)")
+    print("    phase        : Current phase (0=PedPhase, 1=VehPhase)")
+    print("    elapsed      : Steps in current phase (0-9)")
+    print("\n  Safety rule: If pedestrian waits ≥ 6 steps → FORCED ped phase!")
 
     agent, env = load_agent("pedestrian")
-    cfg = TrafficEnv.TASK_CONFIG["pedestrian"]
-    agent.print_qtable(cfg["action_meanings"], title="PEDESTRIAN Q-TABLE (Top Rows)")
+    actions    = TrafficEnv.TASK_CONFIG["pedestrian"]["action_meanings"]
+    ped_limit  = TrafficEnv.TASK_CONFIG["pedestrian"]["max_ped_wait"]
 
     while True:
-        print("\n  Enter pedestrian crossing state (or 'q' to go back):")
+        print("\n  Enter state (or 'q' to go back):")
         try:
-            inp = input("  waiting_pedestrians waiting_vehicles (e.g. 4 1): ").strip()
-            if inp.lower() == 'q':
-                break
-            vals = list(map(int, inp.split()))
-            assert len(vals) == 2
-            assert all(0 <= v <= 5 for v in vals)
-        except Exception:
-            print("  [!] Please enter 2 integers between 0 and 5.")
+            inp = input("  peds vehs ped_wait veh_wait phase elapsed: ").strip()
+            if inp.lower() == 'q': break
+            v = list(map(int, inp.split()))
+            assert len(v) == 6
+        except:
+            print("  [!] Enter 6 integers. Example: 4 2 5 1 1 3")
             continue
 
-        raw_state = vals
-        state = env._encode_state(raw_state)
-        action = agent.best_action(state)
-        q_vals = agent.q_table[state]
+        peds, vehs, ped_wait, veh_wait, phase, elapsed = v
+        state          = env._encode_state(v)
+        env._raw_state = v
+        action         = env._safety_override(agent.best_action(state))
+        q_vals         = agent.q_table[state]
 
-        print(f"\n  ┌─────────────────────────────────────────┐")
-        print(f"  │  Pedestrians waiting : {vals[0]:<19}│")
-        print(f"  │  Vehicles waiting    : {vals[1]:<19}│")
-        print(f"  │  Q-Values: Peds={q_vals[0]:+.3f}  Vehs={q_vals[1]:+.3f}     │")
-        print(f"  │  → BEST ACTION: {cfg['action_meanings'][action]:<26}│")
-        print(f"  └─────────────────────────────────────────┘")
+        safety_status = "🚨 SAFETY OVERRIDE!" if ped_wait >= ped_limit else \
+                        "⚠ Approaching limit" if ped_wait >= ped_limit-2 else "✅ Safe"
 
-        if vals[0] > 3:
-            safety = "⚠️  HIGH pedestrian wait — safety priority!"
-        elif vals[0] == 0:
-            safety = "ℹ️  No pedestrians waiting"
-        else:
-            safety = "✅ Normal situation"
-        print(f"  Safety check: {safety}")
-
+        print(f"\n  ┌─────────────────────────────────────────────────┐")
+        print(f"  │  Pedestrians: {peds} (waited {ped_wait} steps) {safety_status:<15}│")
+        print(f"  │  Vehicles   : {vehs} (waited {veh_wait} steps)                  │")
+        print(f"  │  Phase      : {'PedPhase' if phase==0 else 'VehPhase'} (active {elapsed} steps)          │")
+        print(f"  │                                                 │")
+        print(f"  │  Q[Allow Peds]: {q_vals[0]:>8.3f}                        │")
+        print(f"  │  Q[Allow Vehs]: {q_vals[1]:>8.3f}                        │")
+        print(f"  │  → DECISION  : ★ {actions[action]:<31}│")
+        print(f"  └─────────────────────────────────────────────────┘")
 
 # =============================================================================
-# Demo — Parking
+# PARKING DEMO
 # =============================================================================
 def demo_parking():
-    print("\n" + "="*60)
-    print("  DEMO: Parking Lot Management")
-    print("="*60)
-    print("  State variables: available_spots (0-10), incoming_vehicles (0-5)")
-    print("  Actions: 0=Open Zone A | 1=Open Zone B | 2=Close Entry")
+    print("\n" + "="*65)
+    print("  DEMO: Parking Lot Management (FIXED v2)")
+    print("="*65)
+    print("  Inputs needed:")
+    print("    spots      : Available spots (0-19)")
+    print("    incoming   : Incoming vehicles (0-9)")
+    print("    queue_wait : How long queue has waited (0-9)")
+    print("    occupancy  : 0=<25% 1=25-50% 2=50-75% 3=75-100% 4=FULL")
 
     agent, env = load_agent("parking")
-    cfg = TrafficEnv.TASK_CONFIG["parking"]
-    agent.print_qtable(cfg["action_meanings"], title="PARKING Q-TABLE (Top Rows)")
+    actions    = TrafficEnv.TASK_CONFIG["parking"]["action_meanings"]
+    occ_labels = ["<25% full","25-50% full","50-75% full","75-100% full","FULL"]
 
     while True:
-        print("\n  Enter parking state (or 'q' to go back):")
+        print("\n  Enter state (or 'q' to go back):")
         try:
-            inp = input("  available_spots incoming_vehicles (e.g. 3 5): ").strip()
-            if inp.lower() == 'q':
-                break
-            vals = list(map(int, inp.split()))
-            assert len(vals) == 2
-            assert 0 <= vals[0] <= 10
-            assert 0 <= vals[1] <= 5
-        except Exception:
-            print("  [!] available_spots: 0-10, incoming_vehicles: 0-5")
+            inp = input("  spots incoming queue_wait occupancy: ").strip()
+            if inp.lower() == 'q': break
+            v = list(map(int, inp.split()))
+            assert len(v) == 4
+        except:
+            print("  [!] Enter 4 integers. Example: 3 7 6 3")
             continue
 
-        raw_state = vals
-        state = env._encode_state(raw_state)
-        action = agent.best_action(state)
-        q_vals = agent.q_table[state]
+        spots, incoming, queue_wait, occupancy = v
+        state          = env._encode_state(v)
+        env._raw_state = v
+        action         = env._safety_override(agent.best_action(state))
+        q_vals         = agent.q_table[state]
 
-        print(f"\n  ┌─────────────────────────────────────────┐")
-        print(f"  │  Available spots     : {vals[0]:<19}│")
-        print(f"  │  Incoming vehicles   : {vals[1]:<19}│")
-        print(f"  │  Q: ZoneA={q_vals[0]:+.2f} ZoneB={q_vals[1]:+.2f} Close={q_vals[2]:+.2f}│")
-        print(f"  │  → BEST ACTION: {cfg['action_meanings'][action]:<26}│")
-        print(f"  └─────────────────────────────────────────┘")
-
-        if vals[0] == 0:
-            logic = "⚠️  Lot FULL — Close Entry makes sense"
-        elif vals[1] > vals[0]:
-            logic = "⚠️  More cars than spots — manage carefully"
-        else:
-            logic = "✅ Enough spots for incoming vehicles"
-        print(f"  Logic check: {logic}")
-
+        print(f"\n  ┌─────────────────────────────────────────────────┐")
+        print(f"  │  Available spots : {spots:<30}│")
+        print(f"  │  Incoming vehs   : {incoming:<30}│")
+        print(f"  │  Queue wait time : {queue_wait} steps{'':<24}│")
+        print(f"  │  Occupancy       : {occ_labels[min(occupancy,4)]:<30}│")
+        print(f"  │                                                 │")
+        print(f"  │  Q[Open Zone A]  : {q_vals[0]:>8.3f}                      │")
+        print(f"  │  Q[Open Zone B]  : {q_vals[1]:>8.3f}                      │")
+        print(f"  │  Q[Close Entry]  : {q_vals[2]:>8.3f}                      │")
+        print(f"  │  → DECISION      : ★ {actions[action]:<27}│")
+        print(f"  └─────────────────────────────────────────────────┘")
 
 # =============================================================================
 # MAIN MENU
 # =============================================================================
 def main():
-    print("\n" + "="*60)
-    print("  UMORDA — TRAFFIC DOMAIN DEMO")
-    print("  Multi-Objective Reinforcement Learning Agent")
-    print("="*60)
-
-    menu = {
-        "1": ("Single Traffic Intersection Control", demo_intersection),
-        "2": ("Pedestrian Crossing Control",         demo_pedestrian),
-        "3": ("Parking Lot Management",              demo_parking),
-        "q": ("Quit",                                None),
-    }
+    print("\n" + "="*65)
+    print("  UMORDA — TRAFFIC DOMAIN INTERACTIVE DEMO (FIXED v2)")
+    print("  Features: Wait time awareness, Hard safety guarantees,")
+    print("            Phase memory, Wider state space")
+    print("="*65)
 
     while True:
-        print("\n  Select a task to demo:")
-        for key, (label, _) in menu.items():
-            print(f"    [{key}] {label}")
+        print("\n  Select task:")
+        print("  [1] Intersection Control")
+        print("  [2] Pedestrian Crossing")
+        print("  [3] Parking Management")
+        print("  [q] Quit")
 
         choice = input("\n  Your choice: ").strip().lower()
-
-        if choice == 'q':
-            print("\n  Goodbye! 👋\n")
-            break
-        elif choice in menu and menu[choice][1]:
-            menu[choice][1]()
-        else:
-            print("  [!] Invalid choice. Please try again.")
-
+        if choice == "1":   demo_intersection()
+        elif choice == "2": demo_pedestrian()
+        elif choice == "3": demo_parking()
+        elif choice == "q": print("\n  Goodbye! 👋\n"); break
+        else:               print("  [!] Invalid choice.")
 
 if __name__ == "__main__":
     main()

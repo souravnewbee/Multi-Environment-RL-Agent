@@ -1,0 +1,811 @@
+
+===========================================================================
+  PARKING Q-TABLE — Parking Lot Management (FIXED v2)
+  State variables: available_spots, incoming_vehicles,
+                   queue_wait_time, occupancy_rate
+  Actions: [0] Open Zone A  [1] Open Zone B  [2] Close Entry
+  Safety : If vehicles queue > 7 steps and spots exist → Force Open
+===========================================================================
+  ┌─ Spots=0, Incoming=0 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 0 steps
+  │  Q[Open Zone A] :    9.826
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 0 steps
+  │  Q[Open Zone A] :   17.146
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 0 steps
+  │  Q[Open Zone A] :    9.929
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: FULL
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 0 steps
+  │  Q[Open Zone A] :   42.117
+  │  Q[Open Zone B] :   59.389
+  │  Q[Close Entry] :  103.779
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 1 steps
+  │  Q[Open Zone A] :    9.784
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 1 steps
+  │  Q[Open Zone A] :   16.887
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 1 steps
+  │  Q[Open Zone A] :   17.731
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 1 steps
+  │  Q[Open Zone A] :   18.344
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: FULL
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 1 steps
+  │  Q[Open Zone A] :   47.266
+  │  Q[Open Zone B] :   55.212
+  │  Q[Close Entry] :   99.906
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 2 steps
+  │  Q[Open Zone A] :   24.457
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 2 steps
+  │  Q[Open Zone A] :   17.669
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 2 steps
+  │  Q[Open Zone A] :   18.562
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 2 steps
+  │  Q[Open Zone A] :    5.659
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :   22.445
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: FULL
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 2 steps
+  │  Q[Open Zone A] :   57.939
+  │  Q[Open Zone B] :   31.892
+  │  Q[Close Entry] :   95.947
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 3 steps
+  │  Q[Open Zone A] :    9.240
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 3 steps
+  │  Q[Open Zone A] :   23.370
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 3 steps
+  │  Q[Open Zone A] :   17.099
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 3 steps
+  │  Q[Open Zone A] :    1.000
+  │  Q[Open Zone B] :   29.346
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone B  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: FULL
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 3 steps
+  │  Q[Open Zone A] :   34.101
+  │  Q[Open Zone B] :   24.387
+  │  Q[Close Entry] :   91.272
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 4 steps
+  │  Q[Open Zone A] :    8.802
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 4 steps
+  │  Q[Open Zone A] :   27.783
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 4 steps
+  │  Q[Open Zone A] :   22.130
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 4 steps
+  │  Q[Open Zone A] :   16.717
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: FULL
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 4 steps
+  │  Q[Open Zone A] :   52.124
+  │  Q[Open Zone B] :   49.949
+  │  Q[Close Entry] :   87.941
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 5 steps
+  │  Q[Open Zone A] :   15.279
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 5 steps
+  │  Q[Open Zone A] :    8.960
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 5 steps
+  │  Q[Open Zone A] :    0.799
+  │  Q[Open Zone B] :   15.384
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone B  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 5 steps
+  │  Q[Open Zone A] :    1.000
+  │  Q[Open Zone B] :   20.891
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone B  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: FULL
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 5 steps
+  │  Q[Open Zone A] :   37.021
+  │  Q[Open Zone B] :   57.416
+  │  Q[Close Entry] :   85.256
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 6 steps
+  │  Q[Open Zone A] :    1.000
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :   28.093
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 6 steps
+  │  Q[Open Zone A] :   25.983
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 6 steps
+  │  Q[Open Zone A] :   14.674
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 6 steps
+  │  Q[Open Zone A] :    8.214
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: FULL
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 6 steps
+  │  Q[Open Zone A] :   11.601
+  │  Q[Open Zone B] :   30.832
+  │  Q[Close Entry] :   82.007
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 7 steps
+  │  Q[Open Zone A] :    7.984
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 7 steps
+  │  Q[Open Zone A] :   14.284
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 7 steps
+  │  Q[Open Zone A] :    1.000
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.595
+  │  DECISION       : ★ Close Entry  (LOW confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 7 steps
+  │  Q[Open Zone A] :   19.849
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: FULL
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 7 steps
+  │  Q[Open Zone A] :   17.241
+  │  Q[Open Zone B] :   19.052
+  │  Q[Close Entry] :   79.877
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 8 steps
+  │  Q[Open Zone A] :   13.838
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 8 steps
+  │  Q[Open Zone A] :   19.026
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 8 steps
+  │  Q[Open Zone A] :   13.901
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: FULL
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 8 steps
+  │  Q[Open Zone A] :    9.865
+  │  Q[Open Zone B] :   70.861
+  │  Q[Close Entry] :    9.713
+  │  DECISION       : ★ Open Zone B  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 9 steps
+  │  Q[Open Zone A] :   18.694
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 9 steps
+  │  Q[Open Zone A] :    1.000
+  │  Q[Open Zone B] :   24.343
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone B  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=0 | Occupancy: FULL
+  │  Situation      : LOT FULL — 0 vehicles incoming!
+  │  Queue wait     : 9 steps
+  │  Q[Open Zone A] :   62.175
+  │  Q[Open Zone B] :    5.672
+  │  Q[Close Entry] :   16.010
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 0 steps
+  │  Q[Open Zone A] :    9.907
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 0 steps
+  │  Q[Open Zone A] :   25.079
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 0 steps
+  │  Q[Open Zone A] :   17.536
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 0 steps
+  │  Q[Open Zone A] :    9.904
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: FULL
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 0 steps
+  │  Q[Open Zone A] :   17.887
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 1 steps
+  │  Q[Open Zone A] :   28.532
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 1 steps
+  │  Q[Open Zone A] :   17.756
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 1 steps
+  │  Q[Open Zone A] :    9.621
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: FULL
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 1 steps
+  │  Q[Open Zone A] :   66.586
+  │  Q[Open Zone B] :   83.981
+  │  Q[Close Entry] :   98.490
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 2 steps
+  │  Q[Open Zone A] :   12.362
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 2 steps
+  │  Q[Open Zone A] :   17.538
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 2 steps
+  │  Q[Open Zone A] :   33.399
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 2 steps
+  │  Q[Open Zone A] :   17.508
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: FULL
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 2 steps
+  │  Q[Open Zone A] :   66.281
+  │  Q[Open Zone B] :   75.253
+  │  Q[Close Entry] :   94.633
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 3 steps
+  │  Q[Open Zone A] :   39.716
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 3 steps
+  │  Q[Open Zone A] :   16.710
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 3 steps
+  │  Q[Open Zone A] :    9.216
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 3 steps
+  │  Q[Open Zone A] :    9.258
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: FULL
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 3 steps
+  │  Q[Open Zone A] :   78.012
+  │  Q[Open Zone B] :   79.973
+  │  Q[Close Entry] :   90.591
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 4 steps
+  │  Q[Open Zone A] :    8.850
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 4 steps
+  │  Q[Open Zone A] :   28.028
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 4 steps
+  │  Q[Open Zone A] :   22.221
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 4 steps
+  │  Q[Open Zone A] :    1.000
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :   17.503
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: FULL
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 4 steps
+  │  Q[Open Zone A] :   60.308
+  │  Q[Open Zone B] :   70.639
+  │  Q[Close Entry] :   87.839
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 5 steps
+  │  Q[Open Zone A] :   26.731
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 5 steps
+  │  Q[Open Zone A] :    8.499
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 5 steps
+  │  Q[Open Zone A] :   15.233
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: FULL
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 5 steps
+  │  Q[Open Zone A] :   69.370
+  │  Q[Open Zone B] :   68.884
+  │  Q[Close Entry] :   85.428
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 6 steps
+  │  Q[Open Zone A] :   20.555
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 6 steps
+  │  Q[Open Zone A] :    8.220
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 6 steps
+  │  Q[Open Zone A] :   14.686
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 6 steps
+  │  Q[Open Zone A] :   14.707
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: FULL
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 6 steps
+  │  Q[Open Zone A] :   61.708
+  │  Q[Open Zone B] :   72.347
+  │  Q[Close Entry] :   83.523
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 7 steps
+  │  Q[Open Zone A] :    1.000
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :   10.045
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 7 steps
+  │  Q[Open Zone A] :   19.823
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 7 steps
+  │  Q[Open Zone A] :   14.272
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 7 steps
+  │  Q[Open Zone A] :    7.981
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: FULL
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 7 steps
+  │  Q[Open Zone A] :   64.554
+  │  Q[Open Zone B] :   62.788
+  │  Q[Close Entry] :   82.000
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 8 steps
+  │  Q[Open Zone A] :    7.790
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 8 steps
+  │  Q[Open Zone A] :    7.790
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 8 steps
+  │  Q[Open Zone A] :   19.401
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 8 steps
+  │  Q[Open Zone A] :   13.901
+  │  Q[Open Zone B] :    0.977
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: FULL
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 8 steps
+  │  Q[Open Zone A] :   61.331
+  │  Q[Open Zone B] :   53.004
+  │  Q[Close Entry] :   81.000
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 9 steps
+  │  Q[Open Zone A] :   23.852
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 9 steps
+  │  Q[Open Zone A] :   19.008
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 9 steps
+  │  Q[Open Zone A] :    1.000
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    8.112
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=1 | Occupancy: FULL
+  │  Situation      : LOT FULL — 1 vehicles incoming!
+  │  Queue wait     : 9 steps
+  │  Q[Open Zone A] :   56.203
+  │  Q[Open Zone B] :   58.340
+  │  Q[Close Entry] :   80.000
+  │  DECISION       : ★ Close Entry  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=2 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 2 vehicles incoming!
+  │  Queue wait     : 0 steps
+  │  Q[Open Zone A] :   34.392
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=2 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 2 vehicles incoming!
+  │  Queue wait     : 0 steps
+  │  Q[Open Zone A] :   24.941
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=2 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 2 vehicles incoming!
+  │  Queue wait     : 0 steps
+  │  Q[Open Zone A] :    9.885
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=2 | Occupancy: 75-100% full
+  │  Situation      : LOT FULL — 2 vehicles incoming!
+  │  Queue wait     : 0 steps
+  │  Q[Open Zone A] :    9.900
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=2 | Occupancy: <25% full
+  │  Situation      : LOT FULL — 2 vehicles incoming!
+  │  Queue wait     : 1 steps
+  │  Q[Open Zone A] :   17.725
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=2 | Occupancy: 25-50% full
+  │  Situation      : LOT FULL — 2 vehicles incoming!
+  │  Queue wait     : 1 steps
+  │  Q[Open Zone A] :    9.812
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+  ┌─ Spots=0, Incoming=2 | Occupancy: 50-75% full
+  │  Situation      : LOT FULL — 2 vehicles incoming!
+  │  Queue wait     : 1 steps
+  │  Q[Open Zone A] :    9.797
+  │  Q[Open Zone B] :    1.000
+  │  Q[Close Entry] :    1.000
+  │  DECISION       : ★ Open Zone A  (HIGH confidence)
+  └────────────────────────────────────────────────────────────
+
+  Total trained states shown: 100
+===========================================================================
