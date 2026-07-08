@@ -257,3 +257,37 @@ Reason: {reason_hint}
 Explain this decision in plain language."""
 
     return _call_llm(system_prompt, user_prompt, temperature=0.4, max_tokens=250)
+
+# =============================================================================
+# ENERGY DOMAIN SPECS (added below existing hospital + traffic specs)
+# =============================================================================
+ENERGY_TASK_FIELD_SPECS = {
+    "solar_scheduling": {
+        "solar_output":     "how much solar power the balcony panels are generating (0-9, 0=none, 9=maximum)",
+        "home_consumption": "current home electricity usage (0-9)",
+        "battery_level":    "current battery charge level (0-9, 0=empty, 9=full)",
+        "time_of_day":      "time of day: 0=Morning, 1=Afternoon, 2=Evening, 3=Night (integer, 0-3)",
+    },
+    "battery_management": {
+        "battery_level":    "current battery charge (0-9, 0=empty, 9=full)",
+        "solar_output":     "current solar generation (0-9)",
+        "grid_price":       "electricity price: 0=Cheap, 1=Normal, 2=Expensive (integer, 0-2)",
+        "home_consumption": "current home electricity usage (0-9)",
+    },
+    "grid_interaction": {
+        "grid_price":       "electricity price: 0=Cheap, 1=Normal, 2=Expensive (integer, 0-2)",
+        "solar_surplus":    "extra solar power beyond home needs (0-9)",
+        "battery_level":    "current battery charge (0-9)",
+        "home_consumption": "current home electricity usage (0-9)",
+    },
+}
+
+ENERGY_TASK_DESCRIPTIONS = {
+    "solar_scheduling": "balcony solar panel power scheduling — deciding whether to use solar directly, store it in battery, or buy from grid",
+    "battery_management": "battery storage optimization — deciding when to charge, discharge, or keep the battery idle based on solar availability and grid price",
+    "grid_interaction": "grid energy exchange — deciding when to buy electricity from the grid, sell surplus solar to the grid, or stay self-sufficient",
+}
+
+# Merge energy specs into main dicts so existing functions work automatically
+TASK_FIELD_SPECS.update(ENERGY_TASK_FIELD_SPECS)
+TASK_DESCRIPTIONS.update(ENERGY_TASK_DESCRIPTIONS)
