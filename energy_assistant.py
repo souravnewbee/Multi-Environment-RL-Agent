@@ -1,20 +1,11 @@
 """
-UMORDA — Energy Domain Assistant
+UMORDA — Energy Domain Assistant (FIXED VERSION)
 File: energy_assistant.py
 
-Mirrors traffic_assistant.py and hospital_assistant.py for the Energy domain.
-Connects: llm_client.py (Groq + Llama 3) + EnergyEnv + EnergyAgent Q-tables
-
-Domain: Balcony Solar Panel (Balkonkraftwerk) Optimization
-
-Flow per user message:
-  1. route_message()    → which energy task is this about?
-  2. extract_state()    → pull numbers from natural language
-  3. Q-table lookup     → best_action()
-  4. explain_decision() → turn action into plain English
-
-Usage:
-  python energy_assistant.py
+Fixes applied:
+- State validation: solar=0 never picks "Use Solar Directly"
+- Router only activates tasks user actually mentioned
+- Explainer uses human friendly language
 """
 
 import os, sys, json
@@ -40,34 +31,26 @@ DEFAULT_STATE = {
 
 ENERGY_POLICY = {
     "solar_scheduling": [
-        {"text": "Solar power should be used directly whenever it matches or exceeds "
-                 "home consumption — this avoids unnecessary conversion losses. "
-                 "Surplus solar should be stored in the battery for evening and night use "
-                 "rather than wasted. Grid electricity should only be purchased when "
-                 "solar output is zero and the battery is depleted."},
+        {"text": "Solar power should be used directly when it meets or exceeds home "
+                 "consumption. Surplus solar should be stored in the battery for evening "
+                 "and night use. When solar output is zero (rain, night), the battery "
+                 "should be used first before buying from the grid."},
     ],
     "battery_management": [
-        {"text": "The battery should be charged when solar generation is strong and "
-                 "the battery has capacity. Discharging is most beneficial when grid "
-                 "prices are high (expensive tariff period), so stored energy displaces "
-                 "costly grid purchases. Keeping the battery idle is appropriate when "
-                 "solar covers consumption without battery involvement."},
+        {"text": "Charge the battery when solar is strong and battery has space. "
+                 "Discharge the battery when grid price is expensive (price=2) to avoid "
+                 "costly purchases. Keep battery idle when solar already covers home needs."},
     ],
     "grid_interaction": [
-        {"text": "When solar surplus is high and grid prices are expensive, selling "
-                 "electricity back to the grid maximizes financial return. Self-sufficiency "
-                 "should be the default when the home's own solar and battery can cover "
-                 "consumption. Buying from the grid is only justified when own resources "
-                 "are fully depleted, and is best done during cheap tariff periods."},
+        {"text": "Sell to the grid when solar surplus is high and grid price is expensive "
+                 "— this earns maximum money. Stay self-sufficient when own solar and "
+                 "battery covers consumption. Only buy from grid when own resources are "
+                 "fully depleted, and prefer cheap tariff periods."},
     ],
 }
 
 
 class EnergyAssistant:
-    """
-    Loads all 3 trained Energy Q-tables and handles natural language input
-    about balcony solar panel optimization.
-    """
 
     def __init__(self):
         self.envs   = {}
@@ -81,48 +64,115 @@ class EnergyAssistant:
             if os.path.exists(path):
                 agent.load_qtable(path)
             else:
-                print(f"  [!] Q-Table missing for '{task}'.")
-                print(f"      Run: python training/train_energy.py  first!")
+                print(f"  [!] Q-Table missing for '{task}'. Run train_energy.py first!")
             self.envs[task]   = env
             self.agents[task] = agent
 
         self.state   = {t: dict(DEFAULT_STATE[t]) for t in DEFAULT_STATE}
         self.history = []
 
+    # ------------------------------------------------------------------
+    # FIX: State validation before Q-table lookup
+    # ------------------------------------------------------------------
+    def _validate_state(self, task, state_dict):
+        """
+        Fix impossible state situations before querying Q-table.
+        Example: solar=0 should never pick 'Use Solar Directly'
+        """
+        issues = []
+
+        if task == "solar_scheduling":
+            if state_dict.get("solar_output", 0) == 0:
+                issues.append("No solar available (solar_output=0)")
+
+        elif task == "grid_interaction":
+            if state_dict.get("solar_surplus", 0) == 0:
+                issues.append("No solar surplus available (solar_surplus=0)")
+
+        return issues
+
+    # ------------------------------------------------------------------
+    # Q-table decision with validation
+    # ------------------------------------------------------------------
     def _decide(self, task, state_dict):
-        env    = self.envs[task]
-        agent  = self.agents[task]
-        order  = TASK_STATE_ORDER[task]
-        raw    = [state_dict[k] for k in order]
+        env   = self.envs[task]
+        agent = self.agents[task]
+        order = TASK_STATE_ORDER[task]
+        raw   = [state_dict[k] for k in order]
 
         encoded        = env._encode_state(raw)
         env._raw_state = raw
-        action         = agent.best_action(encoded)
         cfg            = EnergyEnv.TASK_CONFIG[task]
-        action_label   = cfg["action_meanings"][action]
-        q_values       = agent.q_table[encoded].tolist()
 
-        q_named = {cfg["action_meanings"][i]: round(q_values[i], 3)
-                   for i in range(len(q_values))}
-        reason  = f"Q-table values: {q_named}"
+        # Get Q-table best action
+        q_action     = agent.best_action(encoded)
+        action_label = cfg["action_meanings"][q_action]
+        q_values     = agent.q_table[encoded].tolist()
+
+        # FIX: Override impossible actions
+        override_reason = None
+
+        if task == "solar_scheduling":
+            solar = state_dict.get("solar_output", 0)
+            if solar == 0 and q_action == 0:  # "Use Solar Directly" when solar=0
+                # Override to battery or grid
+                batt = state_dict.get("battery_level", 0)
+                q_action     = 2 if batt <= 1 else 1  # buy grid if empty, else use battery
+                action_label = cfg["action_meanings"][q_action]
+                override_reason = f"Solar=0 so cannot use solar directly. Using {'battery' if q_action==1 else 'grid'} instead."
+
+        elif task == "grid_interaction":
+            surplus = state_dict.get("solar_surplus", 0)
+            if surplus == 0 and q_action == 1:  # "Sell to Grid" when no surplus
+                batt = state_dict.get("battery_level", 0)
+                cons = state_dict.get("home_consumption", 3)
+                q_action     = 2 if batt >= cons else 0
+                action_label = cfg["action_meanings"][q_action]
+                override_reason = f"No surplus to sell. Using {'self-sufficient' if q_action==2 else 'grid'} instead."
+
+        # Build reason string
+        price_words = ["cheap", "normal", "expensive"]
+        if task == "battery_management":
+            price = state_dict.get("grid_price", 1)
+            batt  = state_dict.get("battery_level", 5)
+            batt_word  = "empty" if batt<=1 else "low" if batt<=3 else "medium" if batt<=6 else "high"
+            price_word = price_words[price]
+            reason = f"Battery is {batt_word}, grid is {price_word}"
+        elif task == "solar_scheduling":
+            solar = state_dict.get("solar_output", 0)
+            solar_word = "unavailable" if solar==0 else "weak" if solar<=3 else "moderate" if solar<=6 else "strong"
+            reason = f"Solar is {solar_word} ({solar}/9)"
+        elif task == "grid_interaction":
+            surplus = state_dict.get("solar_surplus", 0)
+            price   = state_dict.get("grid_price", 1)
+            reason  = f"Surplus={surplus}/9, grid is {price_words[price]}"
+        else:
+            reason = "Q-table based decision"
+
+        if override_reason:
+            reason = f"[Override] {override_reason}"
 
         return {
-            "action":       action_label,
-            "action_index": action,
-            "q_values":     q_values,
-            "reason":       reason,
+            "action":          action_label,
+            "action_index":    q_action,
+            "q_values":        q_values,
+            "reason":          reason,
+            "was_overridden":  override_reason is not None,
         }
 
+    # ------------------------------------------------------------------
+    # Main pipeline
+    # ------------------------------------------------------------------
     def handle_message(self, user_message):
         self.history.append({"role": "user", "content": user_message})
 
-        # STEP 1 — Route
-        all_tasks     = llm_client.route_message(user_message, self.history)
-        energy_tasks  = [t for t in all_tasks if t in TASK_STATE_ORDER]
+        # STEP 1 — Route (only tasks user mentioned)
+        all_tasks    = llm_client.route_message(user_message, self.history)
+        energy_tasks = [t for t in all_tasks if t in TASK_STATE_ORDER]
 
         if not energy_tasks:
             reply = ("I couldn't identify which energy situation you're describing. "
-                     "Please mention solar panels, battery storage, or grid electricity.")
+                     "Please mention solar panels, battery, or grid electricity.")
             self.history.append({"role": "assistant", "content": reply})
             return {"tasks": [], "reply": reply, "results": []}
 
@@ -143,46 +193,55 @@ class EnergyAssistant:
 
             self.state[task] = extraction["state"]
 
-            # STEP 3 — Decide
+            # STEP 3 — Validate + Decide
+            issues   = self._validate_state(task, self.state[task])
             decision = self._decide(task, self.state[task])
 
-            # STEP 4 — Explain
+            # STEP 4 — Explain (human friendly)
             explanation = llm_client.explain_decision(
                 task, self.state[task], decision["action"],
                 decision["reason"], ENERGY_POLICY.get(task, []),
             )
 
             results.append({
-                "task": task, "clarification_needed": False,
-                "state": self.state[task], "decision": decision,
-                "explanation": explanation, "notes": extraction["notes"],
+                "task":                 task,
+                "clarification_needed": False,
+                "state":                self.state[task],
+                "decision":             decision,
+                "explanation":          explanation,
+                "notes":                extraction["notes"],
+                "validation_issues":    issues,
             })
 
+        # Build reply
         reply_parts = []
         for r in results:
             if r["clarification_needed"]:
                 reply_parts.append(r["question"])
             else:
-                reply_parts.append(f"[{r['task'].upper()}] {r['explanation']}")
+                override_tag = " ⚠ (Corrected)" if r["decision"]["was_overridden"] else ""
+                reply_parts.append(f"[{r['task'].upper()}]{override_tag}\n{r['explanation']}")
         reply = "\n\n".join(reply_parts)
+
         self.history.append({"role": "assistant", "content": reply})
         return {"tasks": energy_tasks, "results": results, "reply": reply}
 
 
+# =============================================================================
+# CLI
+# =============================================================================
 def main():
     print("\n" + "="*65)
-    print("  UMORDA — Energy Assistant")
-    print("  Balcony Solar Panel (Balkonkraftwerk) Optimization")
+    print("  UMORDA — Energy Assistant (FIXED VERSION)")
+    print("  Balcony Solar Panel Optimization")
     print("  Powered by: Q-Learning + Groq API + Llama 3")
     print("="*65)
-    print("\n  Try typing naturally, for example:")
-    print('  "My solar panels are generating a lot right now"')
-    print('  "Battery is almost full and grid is expensive"')
-    print('  "It is afternoon and I have lots of surplus solar"')
-    print('  "Battery is empty and there is no sun tonight"')
-    print("\n  Type 'state' to see current known state")
-    print("  Type 'reset' to reset all states")
-    print("  Type 'q' to quit")
+    print("\n  Try typing:")
+    print('  "My solar is not generating much, grid price is high"')
+    print('  "Today is raining, no sun, grid is expensive"')
+    print('  "Battery has some charge, grid price is high"')
+    print('  "Afternoon, lots of sunshine, battery half full"')
+    print("\n  Commands: 'state', 'reset', 'q'")
     print("="*65)
 
     try:
@@ -194,13 +253,16 @@ def main():
         print()
         msg = input("  You: ").strip()
         if not msg: continue
+
         if msg.lower() == "q":
             print("\n  Goodbye! 👋\n"); break
+
         if msg.lower() == "state":
             print("\n  Current known states:")
             for task, state in assistant.state.items():
                 print(f"    [{task}]: {state}")
             continue
+
         if msg.lower() == "reset":
             assistant.state   = {t: dict(DEFAULT_STATE[t]) for t in DEFAULT_STATE}
             assistant.history = []
@@ -213,17 +275,33 @@ def main():
         except Exception as e:
             print(f"\n  [!] Error: {e}\n"); continue
 
-        print(f"\n  Assistant: {result['reply']}")
+        print(f"\n  Assistant:\n  {result['reply']}")
 
         if result.get("results"):
             for r in result["results"]:
                 if not r["clarification_needed"]:
-                    print(f"\n  ── Technical Detail [{r['task']}] ──")
-                    print(f"  State    : {r['state']}")
-                    print(f"  Decision : {r['decision']['action']}")
-                    print(f"  Q-Values : {[round(v,3) for v in r['decision']['q_values']]}")
-                    print(f"  Notes    : {r['notes']}")
-                    print(f"  {'─'*50}")
+                    print(f"\n  ── [{r['task']}] Technical Detail ──")
+                    # Human friendly state description
+                    state = r["state"]
+                    if r["task"] == "solar_scheduling":
+                        solar = state["solar_output"]
+                        print(f"  Solar  : {'None' if solar==0 else 'Weak' if solar<=3 else 'Moderate' if solar<=6 else 'Strong'} ({solar}/9)")
+                        batt  = state["battery_level"]
+                        print(f"  Battery: {'Empty' if batt<=1 else 'Low' if batt<=3 else 'Medium' if batt<=6 else 'High'} ({batt}/9)")
+                    elif r["task"] == "battery_management":
+                        batt  = state["battery_level"]
+                        price = state["grid_price"]
+                        print(f"  Battery: {'Empty' if batt<=1 else 'Low' if batt<=3 else 'Medium' if batt<=6 else 'High'} ({batt}/9)")
+                        print(f"  Grid   : {'Cheap' if price==0 else 'Normal' if price==1 else 'Expensive'}")
+                    elif r["task"] == "grid_interaction":
+                        price  = state["grid_price"]
+                        surp   = state["solar_surplus"]
+                        print(f"  Grid   : {'Cheap' if price==0 else 'Normal' if price==1 else 'Expensive'}")
+                        print(f"  Surplus: {'None' if surp==0 else 'Small' if surp<=3 else 'Good' if surp<=6 else 'Large'} ({surp}/9)")
+                    dec = r["decision"]
+                    override = " ⚠ OVERRIDDEN" if dec["was_overridden"] else ""
+                    print(f"  Decision: {dec['action']}{override}")
+                    print(f"  {'─'*45}")
 
 
 if __name__ == "__main__":

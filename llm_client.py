@@ -1,22 +1,29 @@
 """
-UMORDA — Groq LLM Integration (Hospital + Traffic)
+UMORDA — Groq LLM Integration (Hospital + Traffic + Energy)
 File: llm_client.py
 
-Responsibilities:
-  1. route_message()      — reads user message, decides which task it belongs to
-  2. extract_state()      — pulls numbers out of natural language into structured state
-  3. explain_decision()   — explains the agent's decision in plain English (with policy)
-  4. explain_ungrounded() — same but without policy context (for comparison)
-
-Requires: pip install groq
-Requires: GROQ_API_KEY environment variable set
+FIXED VERSION:
+- Smarter router (only activates tasks user actually mentioned)
+- Better extractor (understands scale properly)
+- Better explainer (no raw Q-values, human friendly language)
+- Scale context added so LLM never confuses price/battery levels
 """
 
-import os
-import json
+import os, json
 from groq import Groq
 
 MODEL = "llama-3.3-70b-versatile"
+
+# Scale reference — used in extractor and explainer prompts
+SCALE_CONTEXT = """
+IMPORTANT SCALE REFERENCE (always use this when interpreting numbers):
+- solar_output    : 0=No solar at all, 1-3=Low/weak, 4-6=Moderate, 7-9=Strong/maximum
+- home_consumption: 0-2=Very low usage, 3-5=Normal usage, 6-9=High usage
+- battery_level   : 0-1=Nearly empty, 2-4=Low, 5-6=Medium, 7-8=High, 9=Full
+- grid_price      : 0=CHEAP (good time to buy), 1=NORMAL, 2=EXPENSIVE (avoid buying!)
+- solar_surplus   : 0=No surplus, 1-3=Small surplus, 4-6=Good surplus, 7-9=Large surplus
+- solar_scheduling time_of_day: 0=Morning, 1=Afternoon(peak sun), 2=Evening, 3=Night(no sun)
+"""
 
 
 def _get_client():
@@ -24,13 +31,13 @@ def _get_client():
     if not api_key:
         raise EnvironmentError(
             "GROQ_API_KEY not set.\n"
-            "Windows: setx GROQ_API_KEY \"your-key-here\"  then restart terminal\n"
+            "Windows: setx GROQ_API_KEY \"your-key-here\" then restart terminal\n"
             "Get a free key at: https://console.groq.com"
         )
     return Groq(api_key=api_key)
 
 
-def _call_llm(system_prompt, user_prompt, temperature=0.2, max_tokens=300):
+def _call_llm(system_prompt, user_prompt, temperature=0.2, max_tokens=400):
     client = _get_client()
     response = client.chat.completions.create(
         model=MODEL,
@@ -49,117 +56,161 @@ def _parse_json(raw):
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        raise ValueError(f"LLM did not return valid JSON.\nRaw output: {raw}")
+        raise ValueError(f"LLM did not return valid JSON.\nRaw: {raw}")
 
 
 # =============================================================================
 # TASK FIELD SPECS
-# Defines what numbers each task needs from the user's message.
-# Adding a new domain = just add entries here. No other functions change.
 # =============================================================================
-
 TASK_FIELD_SPECS = {
 
-    # ── HOSPITAL DOMAIN (Sourav's original — unchanged) ──────────────────────
+    # HOSPITAL (Sourav — unchanged)
     "bed_allocation": {
         "free_beds":        "current free hospital beds (integer, 0-20)",
-        "waiting_patients": "patients currently waiting to be admitted (integer, 0-30)",
+        "waiting_patients": "patients waiting to be admitted (integer, 0-30)",
     },
     "er_queue": {
         "emergency_queue": "emergency patients waiting (integer, 0-10)",
-        "normal_queue":    "normal/non-urgent patients waiting (integer, 0-20)",
+        "normal_queue":    "normal patients waiting (integer, 0-20)",
     },
     "staff_allocation": {
-        "available_doctors": "doctors currently on duty (integer, 1-15)",
-        "patient_load":      "current patient load on staff (integer, 0-50)",
+        "available_doctors": "doctors on duty (integer, 1-15)",
+        "patient_load":      "current patient load (integer, 0-50)",
     },
 
-    # ── TRAFFIC DOMAIN (Ador — v2 with wait time awareness) ──────────────────
+    # TRAFFIC (Ador)
     "intersection": {
-        "cars_NS":       "total cars waiting North+South combined (integer, 0-9)",
-        "cars_EW":       "total cars waiting East+West combined (integer, 0-9)",
-        "current_phase": "which signal is green now: 0=GreenNS, 1=GreenEW (integer, 0-1)",
-        "phase_elapsed": "how many steps current green signal has been active (integer, 0-9)",
-        "wait_NS":       "how long North-South direction has been waiting (integer, 0-9)",
-        "wait_EW":       "how long East-West direction has been waiting (integer, 0-9)",
+        "cars_NS":       "total cars North+South (integer, 0-9)",
+        "cars_EW":       "total cars East+West (integer, 0-9)",
+        "current_phase": "current signal: 0=GreenNS, 1=GreenEW (integer, 0-1)",
+        "phase_elapsed": "steps current signal active (integer, 0-9)",
+        "wait_NS":       "how long NS has been waiting (integer, 0-9)",
+        "wait_EW":       "how long EW has been waiting (integer, 0-9)",
     },
     "pedestrian": {
-        "peds":      "number of pedestrians waiting to cross (integer, 0-9)",
-        "vehs":      "number of vehicles waiting (integer, 0-9)",
-        "ped_wait":  "how long pedestrians have been waiting (integer, 0-9)",
-        "veh_wait":  "how long vehicles have been waiting (integer, 0-9)",
-        "phase":     "current phase: 0=PedestrianPhase, 1=VehiclePhase (integer, 0-1)",
-        "elapsed":   "steps current phase has been active (integer, 0-9)",
+        "peds":     "pedestrians waiting (integer, 0-9)",
+        "vehs":     "vehicles waiting (integer, 0-9)",
+        "ped_wait": "how long peds waited (integer, 0-9)",
+        "veh_wait": "how long vehs waited (integer, 0-9)",
+        "phase":    "0=PedPhase, 1=VehiclePhase (integer, 0-1)",
+        "elapsed":  "steps in current phase (integer, 0-9)",
     },
     "parking": {
-        "spots":      "available parking spots remaining (integer, 0-19)",
-        "incoming":   "vehicles approaching the lot right now (integer, 0-9)",
-        "queue_wait": "how long vehicles have been queuing to enter (integer, 0-9)",
-        "occupancy":  "lot fullness: 0=<25%%, 1=25-50%%, 2=50-75%%, 3=75-100%%, 4=FULL (integer, 0-4)",
+        "spots":      "available spots (integer, 0-19)",
+        "incoming":   "vehicles incoming (integer, 0-9)",
+        "queue_wait": "how long queue waited (integer, 0-9)",
+        "occupancy":  "0=<25%%, 1=25-50%%, 2=50-75%%, 3=75-100%%, 4=FULL (integer, 0-4)",
+    },
+
+    # ENERGY (Ador)
+    "solar_scheduling": {
+        "solar_output":     "solar power being generated RIGHT NOW (integer, 0-9). IMPORTANT: rain/clouds/night = 0, weak sun = 1-3, good sun = 5-7, bright afternoon = 8-9",
+        "home_consumption": "current home electricity usage (integer, 0-9). normal home = 3-4",
+        "battery_level":    "current battery charge (integer, 0-9). 0=empty, 9=full, 5=medium",
+        "time_of_day":      "0=Morning, 1=Afternoon, 2=Evening, 3=Night (integer, 0-3)",
+    },
+    "battery_management": {
+        "battery_level":    "current battery charge (integer, 0-9). 0=empty, 9=full, 5=medium",
+        "solar_output":     "solar being generated now (integer, 0-9). rain/night = 0",
+        "grid_price":       "MUST BE: 0=Cheap, 1=Normal, 2=Expensive. High/expensive price = 2",
+        "home_consumption": "current home usage (integer, 0-9)",
+    },
+    "grid_interaction": {
+        "grid_price":       "MUST BE: 0=Cheap, 1=Normal, 2=Expensive. High/expensive price = 2",
+        "solar_surplus":    "extra solar beyond home needs (integer, 0-9). rain/night = 0",
+        "battery_level":    "current battery charge (integer, 0-9). 0=empty, 9=full, 5=medium",
+        "home_consumption": "current home usage (integer, 0-9)",
     },
 }
 
 TASK_DESCRIPTIONS = {
     # HOSPITAL
-    "bed_allocation":   "hospital bed management — admitting or rejecting patients based on bed availability",
-    "er_queue":         "emergency room triage — serving emergency vs normal queue patients",
-    "staff_allocation": "doctor staffing — assigning more or fewer doctors based on patient load",
+    "bed_allocation":   "hospital bed management",
+    "er_queue":         "emergency room triage",
+    "staff_allocation": "doctor staffing levels",
     # TRAFFIC
-    "intersection": "traffic intersection signal control — switching green light between North-South and East-West based on car counts and wait times",
-    "pedestrian":   "pedestrian crossing control — allowing pedestrians or vehicles to go, prioritizing safety",
-    "parking":      "parking lot entry management — opening Zone A, Zone B, or closing entry based on available spots and queue",
+    "intersection": "traffic intersection signal control",
+    "pedestrian":   "pedestrian crossing control",
+    "parking":      "parking lot entry management",
+    # ENERGY
+    "solar_scheduling":   "deciding how to use solar power being generated right now (use directly, store in battery, or buy from grid)",
+    "battery_management": "deciding when to charge, discharge, or keep battery idle",
+    "grid_interaction":   "deciding when to buy from grid, sell surplus solar to grid, or stay self-sufficient",
+}
+
+# Keywords that strongly suggest each energy task
+ENERGY_TASK_KEYWORDS = {
+    "solar_scheduling": ["solar", "sun", "panel", "generating", "rain", "cloud", "shine", "light", "dark"],
+    "battery_management": ["battery", "charge", "discharge", "store", "stored", "batter"],
+    "grid_interaction": ["grid", "sell", "buy", "surplus", "export", "import", "self-sufficient", "independent"],
 }
 
 
 # =============================================================================
-# 1. ROUTER — which task does this message belong to?
+# 1. ROUTER — FIXED: only routes to tasks user actually mentioned
 # =============================================================================
 def route_message(user_message, conversation_history=None):
     """
-    Reads the user's message and decides which task(s) it belongs to.
-    Returns a list of task names e.g. ['intersection', 'pedestrian']
+    Routes user message to relevant task(s).
+    FIXED: Only activates energy tasks explicitly mentioned by user.
     """
-    task_desc = "\n".join(f"- {k}: {v}" for k, v in TASK_DESCRIPTIONS.items())
+    msg_lower = user_message.lower()
+
+    # Pre-filter: for energy tasks, only include if keywords present
+    energy_tasks_to_check = []
+    for task, keywords in ENERGY_TASK_KEYWORDS.items():
+        if any(kw in msg_lower for kw in keywords):
+            energy_tasks_to_check.append(task)
+
+    # Always include hospital and traffic tasks in LLM check
+    non_energy_tasks = {k: v for k, v in TASK_DESCRIPTIONS.items()
+                        if k not in ENERGY_TASK_KEYWORDS}
+    tasks_to_check   = dict(non_energy_tasks)
+    for t in energy_tasks_to_check:
+        tasks_to_check[t] = TASK_DESCRIPTIONS[t]
+
+    # If no energy keywords found at all, still let LLM decide
+    if not energy_tasks_to_check:
+        tasks_to_check = TASK_DESCRIPTIONS
+
+    task_desc = "\n".join(f"- {k}: {v}" for k, v in tasks_to_check.items())
 
     history_text = ""
     if conversation_history:
         history_text = "\n\nRecent conversation:\n" + "\n".join(
-            f"{m['role']}: {m['content']}" for m in conversation_history[-6:]
+            f"{m['role']}: {m['content']}" for m in conversation_history[-4:]
         )
 
-    system_prompt = f"""You are a router for UMORDA — a system that manages
-hospital resources AND traffic signals.
+    system_prompt = f"""You are a router for UMORDA — a smart decision system.
+Read the user message and decide which task(s) it is DIRECTLY about.
 
-Read the user message and decide which task(s) it is about:
-
+Available tasks:
 {task_desc}
 
-Rules:
-- A message can be about MULTIPLE tasks — include all that apply.
-- If it is a follow-up, check conversation history and keep same task.
-- If message is unrelated to any task, return empty list.
-- Output ONLY this JSON: {{"tasks": ["task_name", ...]}}
+STRICT RULES:
+- Only include tasks the user EXPLICITLY mentions or strongly implies.
+- Do NOT include tasks just because they are related — user must mention them.
+- Example: "battery is charged" → only battery_management. NOT solar or grid.
+- Example: "solar panels working well" → only solar_scheduling. NOT battery or grid.
+- Example: "grid is expensive" → battery_management AND grid_interaction (price affects both).
+- If message mentions rain/no sun → solar_scheduling (solar=0 situation).
+- Output ONLY: {{"tasks": ["task_name", ...]}}
 """
-    user_prompt = f'User message: "{user_message}"{history_text}\n\nOutput JSON.'
+    user_prompt = f'Message: "{user_message}"{history_text}\n\nOutput JSON only.'
 
-    raw    = _call_llm(system_prompt, user_prompt, temperature=0.0, max_tokens=100)
+    raw    = _call_llm(system_prompt, user_prompt, temperature=0.0, max_tokens=80)
     parsed = _parse_json(raw)
     tasks  = parsed.get("tasks", [])
     return [t for t in tasks if t in TASK_FIELD_SPECS]
 
 
 # =============================================================================
-# 2. EXTRACTOR — pull numbers out of natural language
+# 2. EXTRACTOR — FIXED: understands scale and weather context properly
 # =============================================================================
 def extract_state(task, user_message, known_state, conversation_history=None):
     """
-    Turns the user's natural language into exact numbers the Q-table needs.
-
-    Returns a dict with:
-      state                  — updated numeric state
-      needs_clarification    — True if message is too vague or impossible
-      clarification_question — what to ask the user if unclear
-      notes                  — what was inferred vs directly stated
+    Extracts numeric state from natural language.
+    FIXED: Proper scale understanding, weather context, price mapping.
     """
     fields     = TASK_FIELD_SPECS[task]
     field_desc = "\n".join(f"- {k}: {v}" for k, v in fields.items())
@@ -167,37 +218,44 @@ def extract_state(task, user_message, known_state, conversation_history=None):
     history_text = ""
     if conversation_history:
         history_text = "\n\nConversation history:\n" + "\n".join(
-            f"{m['role']}: {m['content']}" for m in conversation_history[-6:]
+            f"{m['role']}: {m['content']}" for m in conversation_history[-4:]
         )
 
-    system_prompt = f"""You are a data extractor for UMORDA.
+    system_prompt = f"""You are a precise data extractor for UMORDA energy management.
 Task: {task} — {TASK_DESCRIPTIONS.get(task, '')}
 
-Extract these fields from the user message:
+{SCALE_CONTEXT}
+
+Fields to extract:
 {field_desc}
 
-Rules:
-- Start from the known current values.
-- Update fields the message mentions. Keep others unchanged.
-- Vague words → reasonable numbers ("a lot" → high, "a few" → 2-4).
-- Follow-ups like "a few more arrived" → ADD to known value.
-- Impossible values (e.g. 5000 cars) → needs_clarification=true + question.
-- Completely unrelated message → needs_clarification=true.
-- Output ONLY this JSON:
+CRITICAL EXTRACTION RULES:
+1. Rain / cloudy / overcast / no sun / night → solar_output = 0, solar_surplus = 0
+2. "High price" / "expensive grid" / "costly grid" → grid_price = 2
+3. "Cheap grid" / "low price" → grid_price = 0
+4. "Some charge" / "some battery" → battery_level = 5 (medium)
+5. "Low battery" → battery_level = 2
+6. "Full battery" → battery_level = 9
+7. "A lot of solar" / "panels working well" → solar_output = 7
+8. "Weak solar" / "little sun" → solar_output = 2
+9. Only update fields the message mentions. Keep others from known state.
+10. If value is impossible → needs_clarification = true.
+
+Output ONLY this JSON:
 {{
-  "state": {{...fields...}},
-  "needs_clarification": true/false,
-  "clarification_question": "..." or null,
-  "notes": "short note on what was inferred"
+  "state": {{...all fields...}},
+  "needs_clarification": false,
+  "clarification_question": null,
+  "notes": "brief note on what was extracted"
 }}
 """
-    user_prompt = f"""Current known state: {json.dumps(known_state)}{history_text}
+    user_prompt = f"""Known state: {json.dumps(known_state)}{history_text}
 
-User message: "{user_message}"
+User said: "{user_message}"
 
-Output JSON."""
+Extract and output JSON only."""
 
-    raw    = _call_llm(system_prompt, user_prompt, temperature=0.2, max_tokens=350)
+    raw    = _call_llm(system_prompt, user_prompt, temperature=0.1, max_tokens=300)
     parsed = _parse_json(raw)
 
     result_state = dict(known_state)
@@ -217,77 +275,80 @@ Output JSON."""
 
 
 # =============================================================================
-# 3. EXPLAINER — turn agent decision into plain English (with policy)
+# 3. EXPLAINER — FIXED: human friendly, no raw Q-values, correct scale words
 # =============================================================================
 def explain_decision(task, state, action, reason_hint, policy_chunks):
-    """Explains the agent's decision using policy context (RAG-grounded)."""
+    """
+    Explains agent decision in plain human-friendly language.
+    FIXED: No raw Q-values, correct scale descriptions, clear reasoning.
+    """
     policy_text = "\n\n".join(c["text"] for c in policy_chunks)
 
-    system_prompt = """You are an assistant explaining decisions made by the
-UMORDA reinforcement learning agent. Write a clear 2-4 sentence explanation.
-Use the policy text naturally. Do not invent facts. Be practical and direct."""
+    # Convert numeric state to human-friendly descriptions
+    def describe_state(task, state):
+        desc = []
+        if task == "solar_scheduling":
+            solar = state.get("solar_output", 0)
+            desc.append(f"solar output is {'none' if solar==0 else 'weak' if solar<=3 else 'moderate' if solar<=6 else 'strong'} ({solar}/9)")
+            batt  = state.get("battery_level", 0)
+            desc.append(f"battery is {'empty' if batt<=1 else 'low' if batt<=3 else 'medium' if batt<=6 else 'high' if batt<=8 else 'full'} ({batt}/9)")
+            times = ["morning", "afternoon", "evening", "night"]
+            desc.append(f"time is {times[state.get('time_of_day',0)]}")
+        elif task == "battery_management":
+            batt  = state.get("battery_level", 0)
+            desc.append(f"battery is {'empty' if batt<=1 else 'low' if batt<=3 else 'medium' if batt<=6 else 'high' if batt<=8 else 'full'} ({batt}/9)")
+            price = state.get("grid_price", 1)
+            desc.append(f"grid price is {'cheap' if price==0 else 'normal' if price==1 else 'expensive'}")
+            solar = state.get("solar_output", 0)
+            desc.append(f"solar is {'unavailable' if solar==0 else 'weak' if solar<=3 else 'available'} ({solar}/9)")
+        elif task == "grid_interaction":
+            price = state.get("grid_price", 1)
+            desc.append(f"grid price is {'cheap' if price==0 else 'normal' if price==1 else 'expensive'}")
+            surp  = state.get("solar_surplus", 0)
+            desc.append(f"solar surplus is {'none' if surp==0 else 'small' if surp<=3 else 'good' if surp<=6 else 'large'} ({surp}/9)")
+            batt  = state.get("battery_level", 0)
+            desc.append(f"battery is {'empty' if batt<=1 else 'low' if batt<=3 else 'medium' if batt<=6 else 'high'} ({batt}/9)")
+        return ", ".join(desc)
 
-    user_prompt = f"""Task: {task}
-Situation: {json.dumps(state)}
-Decision: {action}
-Reason: {reason_hint}
+    friendly_state = describe_state(task, state)
+
+    system_prompt = f"""You are a friendly energy advisor explaining a smart home decision.
+Write a SHORT clear explanation (2-3 sentences MAX) for a regular home owner.
+
+{SCALE_CONTEXT}
+
+STRICT RULES:
+- NEVER mention Q-table values or numbers like "79.593" — these mean nothing to users.
+- NEVER say "relatively low" for grid_price=2 — price 2 is EXPENSIVE, always say so!
+- NEVER say battery level 5 is "low" — 5/9 is MEDIUM.
+- Use simple everyday language — imagine explaining to your neighbor.
+- Focus on WHY the decision makes sense in real life.
+- Keep it under 3 sentences.
+"""
+
+    user_prompt = f"""Situation: {friendly_state}
+Decision made: {action}
+Internal reason: {reason_hint}
 
 Policy context:
 {policy_text}
 
-Explain this decision in plain language."""
+Explain this decision simply to a home owner. No Q-values. No technical jargon."""
 
-    return _call_llm(system_prompt, user_prompt, temperature=0.4, max_tokens=250)
+    return _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=200)
 
 
 # =============================================================================
-# 4. EXPLAINER — without policy (for comparison)
+# 4. EXPLAINER WITHOUT POLICY (for comparison)
 # =============================================================================
 def explain_ungrounded(task, state, action, reason_hint):
-    """Same as explain_decision but without policy — for comparison."""
-    system_prompt = """You are an assistant explaining decisions made by the
-UMORDA reinforcement learning agent. Write a clear 2-4 sentence explanation
-using your general knowledge. Be practical and direct."""
+    system_prompt = """You are a friendly energy advisor. Explain a smart home 
+energy decision in 2-3 simple sentences. No Q-values. No technical terms."""
 
     user_prompt = f"""Task: {task}
 Situation: {json.dumps(state)}
 Decision: {action}
-Reason: {reason_hint}
 
-Explain this decision in plain language."""
+Explain simply to a home owner."""
 
-    return _call_llm(system_prompt, user_prompt, temperature=0.4, max_tokens=250)
-
-# =============================================================================
-# ENERGY DOMAIN SPECS (added below existing hospital + traffic specs)
-# =============================================================================
-ENERGY_TASK_FIELD_SPECS = {
-    "solar_scheduling": {
-        "solar_output":     "how much solar power the balcony panels are generating (0-9, 0=none, 9=maximum)",
-        "home_consumption": "current home electricity usage (0-9)",
-        "battery_level":    "current battery charge level (0-9, 0=empty, 9=full)",
-        "time_of_day":      "time of day: 0=Morning, 1=Afternoon, 2=Evening, 3=Night (integer, 0-3)",
-    },
-    "battery_management": {
-        "battery_level":    "current battery charge (0-9, 0=empty, 9=full)",
-        "solar_output":     "current solar generation (0-9)",
-        "grid_price":       "electricity price: 0=Cheap, 1=Normal, 2=Expensive (integer, 0-2)",
-        "home_consumption": "current home electricity usage (0-9)",
-    },
-    "grid_interaction": {
-        "grid_price":       "electricity price: 0=Cheap, 1=Normal, 2=Expensive (integer, 0-2)",
-        "solar_surplus":    "extra solar power beyond home needs (0-9)",
-        "battery_level":    "current battery charge (0-9)",
-        "home_consumption": "current home electricity usage (0-9)",
-    },
-}
-
-ENERGY_TASK_DESCRIPTIONS = {
-    "solar_scheduling": "balcony solar panel power scheduling — deciding whether to use solar directly, store it in battery, or buy from grid",
-    "battery_management": "battery storage optimization — deciding when to charge, discharge, or keep the battery idle based on solar availability and grid price",
-    "grid_interaction": "grid energy exchange — deciding when to buy electricity from the grid, sell surplus solar to the grid, or stay self-sufficient",
-}
-
-# Merge energy specs into main dicts so existing functions work automatically
-TASK_FIELD_SPECS.update(ENERGY_TASK_FIELD_SPECS)
-TASK_DESCRIPTIONS.update(ENERGY_TASK_DESCRIPTIONS)
+    return _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=200)
