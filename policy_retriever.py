@@ -1,10 +1,12 @@
 """
-UMORDA — RAG Retriever for Hospital Knowledge Base
+UMORDA — RAG Retriever for Knowledge Base (Hospital + Traffic + Energy)
 Loads policy markdown files, splits them into chunks, and retrieves the
 most relevant chunk(s) for a given query using TF-IDF cosine similarity.
 
 No external vector DB needed — the knowledge base is small enough that
 TF-IDF retrieval is fast, accurate, and dependency-light.
+
+EXTENDED: Traffic and Energy domains added alongside Hospital.
 """
 
 import os
@@ -24,8 +26,8 @@ class PolicyRetriever:
     """
 
     def __init__(self, kb_dir="knowledge_base"):
-        self.kb_dir   = kb_dir
-        self.chunks   = []   # list of {"text": ..., "source": ...}
+        self.kb_dir = kb_dir
+        self.chunks = []   # list of {"text": ..., "source": ...}
         self._load_and_chunk()
         self._build_index()
 
@@ -47,7 +49,6 @@ class PolicyRetriever:
                 section = section.strip()
                 if not section or len(section) < 20:
                     continue
-                # Re-attach header marker for readability if it was stripped
                 if not section.startswith("#"):
                     section = "## " + section
                 self.chunks.append({"text": section, "source": fname})
@@ -55,8 +56,8 @@ class PolicyRetriever:
     # ── Build TF-IDF index over all chunks ───────────────────────────────────
     def _build_index(self):
         corpus = [c["text"] for c in self.chunks]
-        self.vectorizer   = TfidfVectorizer(stop_words="english")
-        self.doc_matrix   = self.vectorizer.fit_transform(corpus)
+        self.vectorizer = TfidfVectorizer(stop_words="english")
+        self.doc_matrix = self.vectorizer.fit_transform(corpus)
 
     # ── Retrieve top_k most relevant chunks for a query ──────────────────────
     def retrieve(self, query, top_k=2, source_filter=None):
@@ -66,7 +67,6 @@ class PolicyRetriever:
         query         : str, natural language description of the situation
         top_k         : int, number of chunks to return
         source_filter : str or None, restrict search to a specific filename
-                         (e.g. "bed_allocation_policy.md") for speed/precision
 
         Returns
         -------
@@ -96,16 +96,29 @@ class PolicyRetriever:
         return results
 
 
-# ── Task → knowledge base file mapping ────────────────────────────────────────
+# ── Task → knowledge base file mapping ───────────────────────────────────────
 TASK_SOURCE_MAP = {
+    # HOSPITAL (Sourav — unchanged)
     "bed_allocation":   "bed_allocation_policy.md",
     "er_queue":         "er_queue_policy.md",
     "staff_allocation": "staff_allocation_policy.md",
+
+    # TRAFFIC (Ador)
+    "intersection": "intersection_policy.md",
+    "pedestrian":   "pedestrian_policy.md",
+    "parking":      "parking_policy.md",
+
+    # ENERGY (Ador)
+    "solar_scheduling":   "solar_scheduling_policy.md",
+    "battery_management": "battery_management_policy.md",
+    "grid_interaction":   "grid_interaction_policy.md",
 }
 
 
 def build_query(task, state, action):
     """Turn a (task, state, action) triple into a natural language query for retrieval."""
+
+    # HOSPITAL
     if task == "bed_allocation":
         return (
             f"free beds {state['free_beds']} waiting patients "
@@ -121,20 +134,74 @@ def build_query(task, state, action):
             f"available doctors {state['available_doctors']} patient load "
             f"{state['patient_load']} action {action} staffing ratio"
         )
+
+    # TRAFFIC
+    elif task == "intersection":
+        return (
+            f"cars NS {state['cars_NS']} cars EW {state['cars_EW']} "
+            f"wait NS {state['wait_NS']} wait EW {state['wait_EW']} "
+            f"phase elapsed {state['phase_elapsed']} action {action} "
+            f"signal green switch wait time traffic"
+        )
+    elif task == "pedestrian":
+        return (
+            f"pedestrians {state['peds']} vehicles {state['vehs']} "
+            f"ped wait {state['ped_wait']} veh wait {state['veh_wait']} "
+            f"action {action} crossing safety priority signal"
+        )
+    elif task == "parking":
+        return (
+            f"available spots {state['spots']} incoming {state['incoming']} "
+            f"queue wait {state['queue_wait']} occupancy {state['occupancy']} "
+            f"action {action} parking zone entry capacity congestion"
+        )
+
+    # ENERGY
+    elif task == "solar_scheduling":
+        return (
+            f"solar output {state['solar_output']} home consumption {state['home_consumption']} "
+            f"battery level {state['battery_level']} time of day {state['time_of_day']} "
+            f"action {action} solar use store battery grid schedule"
+        )
+    elif task == "battery_management":
+        return (
+            f"battery level {state['battery_level']} solar output {state['solar_output']} "
+            f"grid price {state['grid_price']} consumption {state['home_consumption']} "
+            f"action {action} charge discharge idle battery storage"
+        )
+    elif task == "grid_interaction":
+        return (
+            f"grid price {state['grid_price']} solar surplus {state['solar_surplus']} "
+            f"battery level {state['battery_level']} consumption {state['home_consumption']} "
+            f"action {action} buy sell grid self sufficient energy"
+        )
+
     raise ValueError(f"Unknown task: {task}")
 
 
 if __name__ == "__main__":
-    # Quick smoke test
+    # Smoke test — hospital
     retriever = PolicyRetriever("knowledge_base")
     print(f"Loaded {len(retriever.chunks)} chunks from knowledge base.\n")
 
-    test_query = build_query(
-        "bed_allocation",
-        {"free_beds": 2, "waiting_patients": 25},
-        "Transfer",
-    )
-    results = retriever.retrieve(test_query, top_k=2, source_filter="bed_allocation_policy.md")
-    for r in results:
-        print(f"[{r['source']}] score={r['score']:.3f}")
-        print(r["text"][:200], "...\n")
+    print("── Hospital test ──")
+    q1 = build_query("bed_allocation", {"free_beds": 2, "waiting_patients": 25}, "Transfer")
+    r1 = retriever.retrieve(q1, top_k=2, source_filter="bed_allocation_policy.md")
+    for r in r1:
+        print(f"[{r['source']}] score={r['score']:.3f}: {r['text'][:100]}...\n")
+
+    print("── Traffic test ──")
+    q2 = build_query("intersection",
+                     {"cars_NS":5,"cars_EW":2,"current_phase":0,
+                      "phase_elapsed":3,"wait_NS":7,"wait_EW":1}, "Green NS")
+    r2 = retriever.retrieve(q2, top_k=2, source_filter="intersection_policy.md")
+    for r in r2:
+        print(f"[{r['source']}] score={r['score']:.3f}: {r['text'][:100]}...\n")
+
+    print("── Energy test ──")
+    q3 = build_query("battery_management",
+                     {"battery_level":8,"solar_output":1,"grid_price":2,"home_consumption":3},
+                     "Discharge Battery")
+    r3 = retriever.retrieve(q3, top_k=2, source_filter="battery_management_policy.md")
+    for r in r3:
+        print(f"[{r['source']}] score={r['score']:.3f}: {r['text'][:100]}...\n")
