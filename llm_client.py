@@ -10,9 +10,20 @@ FIXED VERSION:
 """
 
 import os, json
+import requests
 from groq import Groq
 
 MODEL = "llama-3.3-70b-versatile"
+
+# ── Backend switch ───────────────────────────────────────────────────────
+# Set LLM_BACKEND=ollama in your environment to run everything (router,
+# extractor, explainer) on your local 7B model instead of Groq.
+# Windows PowerShell:   $env:LLM_BACKEND="ollama"
+# Windows CMD:          set LLM_BACKEND=ollama
+# Mac/Linux:            export LLM_BACKEND=ollama
+LLM_BACKEND  = os.environ.get("LLM_BACKEND", "groq")   # "groq" or "ollama"
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2:7b")
+OLLAMA_URL   = "http://localhost:11434/api/chat"
 
 # Scale reference — used in extractor and explainer prompts
 SCALE_CONTEXT = """
@@ -37,7 +48,31 @@ def _get_client():
     return Groq(api_key=api_key)
 
 
+def _call_ollama(system_prompt, user_prompt, temperature=0.2, max_tokens=400):
+    response = requests.post(
+        OLLAMA_URL,
+        json={
+            "model": OLLAMA_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            "stream": False,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    return response.json()["message"]["content"].strip()
+
+
 def _call_llm(system_prompt, user_prompt, temperature=0.2, max_tokens=400):
+    if LLM_BACKEND == "ollama":
+        return _call_ollama(system_prompt, user_prompt, temperature, max_tokens)
+
     client = _get_client()
     response = client.chat.completions.create(
         model=MODEL,
@@ -352,3 +387,64 @@ Decision: {action}
 Explain simply to a home owner."""
 
     return _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=200)
+
+
+# =============================================================================
+# SELF-TEST — run this file directly to see the ACTIVE backend in action
+# using the real router / extractor / explainer functions above.
+#   python llm_client.py                 -> uses whatever LLM_BACKEND is set to
+#   $env:LLM_BACKEND="ollama"; python llm_client.py   -> forces the 7B model
+# =============================================================================
+if __name__ == "__main__":
+    print("\n" + "#" * 60)
+    print(f"#   UMORDA LLM CLIENT SELF-TEST")
+    print(f"#   Backend: {LLM_BACKEND}"
+          + (f" (model={OLLAMA_MODEL})" if LLM_BACKEND == "ollama" else f" (model={MODEL})"))
+    print("#" * 60)
+
+    try:
+        # ── Router ────────────────────────────────────────────────────────
+        print("\n[1] route_message()")
+        msg = "Solar panels are producing a lot of power right now"
+        tasks = route_message(msg)
+        print(f"    Message: {msg}")
+        print(f"    Routed tasks: {tasks}")
+
+        # ── Extractor ─────────────────────────────────────────────────────
+        print("\n[2] extract_state()")
+        task = tasks[0] if tasks else "solar_scheduling"
+        known_state = {k: 0 for k in TASK_FIELD_SPECS[task]}
+        result = extract_state(task, msg, known_state)
+        print(f"    Task: {task}")
+        print(f"    Extracted state: {result['state']}")
+        print(f"    Needs clarification: {result['needs_clarification']}")
+        print(f"    Notes: {result['notes']}")
+
+        # ── Explainer ─────────────────────────────────────────────────────
+        print("\n[3] explain_decision()")
+        state       = {"solar_output": 8, "home_consumption": 3,
+                       "battery_level": 4, "time_of_day": 1}
+        action      = "Use Solar Directly"
+        reason_hint = "solar output high, meets and exceeds consumption"
+        policy_chunks = [{
+            "text": ("When solar output is high and exceeds home consumption, "
+                     "use it directly to power the home rather than storing "
+                     "it or buying from the grid, since this avoids battery "
+                     "conversion losses and reduces grid dependency."),
+            "source": "solar_scheduling_policy.md",
+        }]
+        explanation = explain_decision(task, state, action, reason_hint, policy_chunks)
+        print(f"    State: {state}")
+        print(f"    Action: {action}")
+        print(f"    Explanation:\n    {explanation}")
+
+        print("\n" + "=" * 60)
+        print("  SELF-TEST COMPLETE")
+        print("=" * 60 + "\n")
+
+    except Exception as e:
+        print(f"\n  [ERROR] {type(e).__name__}: {e}")
+        if LLM_BACKEND == "ollama":
+            print("  Check Ollama is running and OLLAMA_MODEL matches `ollama list`.")
+        else:
+            print("  Check GROQ_API_KEY is set.")
