@@ -33,7 +33,7 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import llm_client
-
+from mcp_client import get_local_context
 
 # ─────────────────────────────────────────────────────────────────────────
 # Flexible imports — works whether your envs/agents live in
@@ -267,7 +267,19 @@ def main():
 
         # 2. Extract
         known_state = {k: 0 for k in llm_client.TASK_FIELD_SPECS[task]}
+
+        local_ctx = get_local_context()
+        if not local_ctx.get("error"):
+          if "time_of_day" in known_state:
+              known_state["time_of_day"] = local_ctx["time_of_day_bucket"]
+          print(f"  → Real local time: {local_ctx['time']} "
+                f"({local_ctx['time_of_day_name']}, {local_ctx['day_of_week']}, "
+                f"{local_ctx['season']})")
+        else:
+             print(f"  → [!] MCP local context unavailable: {local_ctx['error']}")
+
         extraction  = llm_client.extract_state(task, msg, known_state)
+
         state       = extraction["state"]
         print(f"  → Extracted state: {state}")
         if extraction["notes"]:
