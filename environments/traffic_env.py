@@ -1,5 +1,5 @@
 # =============================================================================
-# UMORDA — Traffic Domain Environment (FIXED VERSION v2)
+# UMORDA — Traffic Domain Environment (FIXED VERSION v2 + Dataset Integration)
 # File: environments/traffic_env.py
 #
 # FIXES APPLIED:
@@ -8,11 +8,29 @@
 # C) Safety is a HARD GUARANTEE — not just a penalty term
 # D) Signal phase + elapsed time added to state (no free switching)
 # E) Wider state space — handles heavy traffic properly
+#
+# DATASET INTEGRATION (intersection task only):
+#   Step 1 — Load cityflow_data.csv once when environment starts
+#   Step 2 — reset() picks a random row from real CityFlow data
+#   Step 3 — _next_raw_state() moves to next row in real data
+#
+#   Data file: data/traffic/cityflow_data.csv
+#   Generate : python data/traffic/fetch_cityflow.py
+#
+#   Pedestrian and Parking tasks stay FULLY SYNTHETIC
+#   (as per UMORDA dataset integration plan)
 # =============================================================================
 
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
+import os
+
+# Path to CityFlow traffic data (intersection only — as per dataset plan)
+# Run data/traffic/fetch_cityflow.py once to generate this file
+CITYFLOW_DATA_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "data", "traffic", "cityflow_data.csv"
+)
 
 
 class TrafficEnv(gym.Env):
@@ -94,10 +112,55 @@ class TrafficEnv(gym.Env):
         self.observation_space = spaces.Discrete(state_size)
         self.action_space      = spaces.Discrete(self.cfg["n_actions"])
 
-        self._raw_state  = None
-        self._state      = None
-        self._step_count = 0
-        self.max_steps   = 150
+        self._raw_state       = None
+        self._state           = None
+        self._step_count      = 0
+        self.max_steps        = 150
+        self._data_idx        = 0
+        self._using_real_data = False
+        self._cityflow_data   = None
+
+        # Load CityFlow data for intersection task only
+        if task == "intersection":
+            self._load_cityflow_data()
+
+    # ------------------------------------------------------------------
+    # STEP 1: Load CityFlow data (intersection only)
+    # ------------------------------------------------------------------
+    def _load_cityflow_data(self):
+        """
+        STEP 1 — Load CityFlow CSV once when environment starts.
+        Reads data/traffic/cityflow_data.csv into memory.
+        Falls back to random if file missing (nothing breaks).
+        Run data/traffic/fetch_cityflow.py once to generate the CSV.
+        """
+        try:
+            import pandas as pd
+            if not os.path.exists(CITYFLOW_DATA_PATH):
+                return
+            df = pd.read_csv(CITYFLOW_DATA_PATH)
+            # Store as list of tuples for fast access
+            self._cityflow_data = list(zip(
+                df["cars_NS"].astype(int),
+                df["cars_EW"].astype(int),
+                df["wait_NS"].astype(int),
+                df["wait_EW"].astype(int),
+            ))
+            if self._cityflow_data:
+                self._using_real_data = True
+        except Exception:
+            self._using_real_data = False
+
+    def _get_cityflow_state(self, idx):
+        """Get intersection state from CityFlow CSV row."""
+        row          = self._cityflow_data[idx % len(self._cityflow_data)]
+        cars_NS      = int(np.clip(row[0], 0, 9))
+        cars_EW      = int(np.clip(row[1], 0, 9))
+        wait_NS      = int(np.clip(row[2], 0, 9))
+        wait_EW      = int(np.clip(row[3], 0, 9))
+        phase        = 0 if cars_NS >= cars_EW else 1
+        phase_elapsed = np.random.randint(0, 5)
+        return [cars_NS, cars_EW, phase, phase_elapsed, wait_NS, wait_EW]
 
     # ------------------------------------------------------------------
     # State encoding / decoding
@@ -134,9 +197,17 @@ class TrafficEnv(gym.Env):
     # ------------------------------------------------------------------
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self._raw_state  = self._sample_raw_state()
-        self._state      = self._encode_state(self._raw_state)
         self._step_count = 0
+
+        # STEP 2: Use real CityFlow data for intersection if available
+        if self.task == "intersection" and self._using_real_data:
+            max_start       = len(self._cityflow_data) - self.max_steps - 1
+            self._data_idx  = np.random.randint(0, max(1, max_start))
+            self._raw_state = self._get_cityflow_state(self._data_idx)
+        else:
+            self._raw_state = self._sample_raw_state()
+
+        self._state = self._encode_state(self._raw_state)
         return self._state, {}
 
     def step(self, action: int):
@@ -279,6 +350,19 @@ class TrafficEnv(gym.Env):
     # FIX B+D: State transitions track wait TIME, not just count
     # ------------------------------------------------------------------
     def _next_raw_state(self, action: int) -> list:
+        # STEP 3: Use next CityFlow row for intersection if real data available
+        if self.task == "intersection" and self._using_real_data:
+            self._data_idx += 1
+            next_state = self._get_cityflow_state(self._data_idx)
+            # Apply phase tracking on top of real traffic data
+            _, _, _, elapsed, _, _ = self._raw_state
+            min_dur   = self.cfg["min_phase_duration"]
+            switching = (action != next_state[2]) and (elapsed >= min_dur)
+            new_elapsed = 0 if switching else min(self.cfg["state_bins"][3]-1, elapsed + 1)
+            next_state[3] = new_elapsed
+            return [int(np.clip(next_state[i], 0, self.cfg["state_bins"][i]-1))
+                    for i in range(len(next_state))]
+
         raw  = self._raw_state.copy()
         bins = self.cfg["state_bins"]
 
