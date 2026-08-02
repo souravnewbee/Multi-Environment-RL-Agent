@@ -1,24 +1,4 @@
-"""
-UMORDA — Agriculture Environment (Gymnasium-compatible)
-Multi-task growing-season simulation. Each episode is a "season" of up to
-SHIFT_LENGTH steps (fewer if the agent reaches a real terminal decision,
-like "Plant Now"). State carries over between steps so a discount factor
-(GAMMA) has real meaning.
 
-Follows the same structural pattern as HospitalEnv and FinanceEnv:
-  - gym.Env subclass
-  - observation_space / action_space declared via gymnasium.spaces
-  - reset() returns (obs, info)
-  - step() returns (obs, reward, terminated, truncated, info)
-  - reward is decomposed into r_performance / r_cost / r_fairness, each
-    logged in info for later analysis (same convention as FinanceEnv)
-
-Unlike HospitalEnv, `soil_preparation` uses a genuine `terminated` signal
-(the agent can choose "Plant Now" and end the episode early) alongside
-`truncated` (running out of the planting window without ever planting).
-This gives the agent a real terminal state to learn from, not just a
-time-out.
-"""
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -79,7 +59,7 @@ class AgricultureEnv(gym.Env):
 
         self.action_space = spaces.Discrete(self.n_actions)
 
-    # ── Reset: start of a new season ─────────────────────────────────────────
+    #  Reset: start of a new season
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.t = 0
@@ -110,7 +90,7 @@ class AgricultureEnv(gym.Env):
 
         return self._obs(), {}
 
-    # ── Step: one decision within the season ─────────────────────────────────
+    # Step: one decision within the season
     def step(self, action_index):
         action = self.actions[action_index]
         terminated = False
@@ -144,9 +124,8 @@ class AgricultureEnv(gym.Env):
 
         return self._obs(), reward, terminated, truncated, info
 
-    # ══════════════════════════════════════════════════════════════════════
+
     # Task 1 — Soil Preparation (unique fruit crop)
-    # ══════════════════════════════════════════════════════════════════════
     def _step_soil_preparation(self, action):
         ph       = self.state["soil_ph"]
         om       = self.state["organic_matter"]
@@ -217,9 +196,8 @@ class AgricultureEnv(gym.Env):
         info["r_fairness"]    = r_fair
         return reward, terminated, info
 
-    # ══════════════════════════════════════════════════════════════════════
+  
     # Task 2 — Irrigation Management
-    # ══════════════════════════════════════════════════════════════════════
     def _step_irrigation(self, action):
         reservoir = self.state["water_reservoir"]
         stress    = self.state["crop_stress"]
@@ -281,9 +259,8 @@ class AgricultureEnv(gym.Env):
         info["rainfall_gain"] = rainfall_gain
         return reward, info
 
-    # ══════════════════════════════════════════════════════════════════════
+ 
     # Task 3 — Pest Control / Treatment Allocation
-    # ══════════════════════════════════════════════════════════════════════
     def _step_pest_control(self, action):
         total  = self.state["total_resource"]
         used   = self.state["resource_used"]
@@ -368,7 +345,7 @@ class AgricultureEnv(gym.Env):
         info["plots_left"]        = self.state["plots_remaining"]
         return reward, info
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
+    #  Helpers
     def _obs(self):
         if self.task == "soil_preparation":
             return np.array([
