@@ -2,6 +2,9 @@
 # UMORDA — Traffic Domain Training Script (FIXED VERSION v2)
 # File: training/train_traffic.py
 # Episodes: 20,000
+#
+# CHANGED: Q-tables now saved via agent.save_qtable(name) -> qtable_store.py
+# (SQLite), landing in qtables/qtables.db instead of separate .npy files.
 # =============================================================================
 
 import sys, os, numpy as np
@@ -17,7 +20,6 @@ EPSILON_START = 1.0
 EPSILON_MIN   = 0.01
 EPSILON_DECAY = 0.9995
 PRINT_EVERY   = 2_000
-QTABLE_DIR    = os.path.join(os.path.dirname(__file__), "..", "qtables")
 TASKS         = ["intersection", "pedestrian", "parking"]
 
 
@@ -92,8 +94,9 @@ def train_task(task: str):
     agent.print_qtable(cfg["action_meanings"],
                        title=f"TRAINED Q-TABLE [{task.upper()}]")
 
-    os.makedirs(QTABLE_DIR, exist_ok=True)
-    agent.save_qtable(os.path.join(QTABLE_DIR, f"traffic_{task}_qtable.npy"))
+    # CHANGED: was agent.save_qtable(os.path.join(QTABLE_DIR, f"traffic_{task}_qtable.npy"))
+    # now saves into qtables/qtables.db under the name "traffic_{task}"
+    agent.save_qtable(f"traffic_{task}")
     return agent, reward_history
 
 
@@ -116,7 +119,7 @@ if __name__ == "__main__":
     print(f"  {'─'*15}-+-{'─'*12}-+-{'─'*14}")
     for task, res in results.items():
         print(f"  {task:>15} | {res['avg']:>12.4f} | {res['eps']:>14.6f}")
-    print(f"\n  Q-Tables saved in: qtables/")
+    print(f"\n  Q-Tables saved in: qtables/qtables.db")
     print(f"  Run: python view_qtable_traffic.py  to see explained decisions")
     print(f"  Run: python demo_traffic.py         to test live")
     print(f"  Run: python visualize_traffic.py    for graphs\n")

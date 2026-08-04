@@ -5,11 +5,17 @@ and discretization bins matched to the REAL caps used inside hospital_env.py
 (previously these were mismatched -- e.g. waiting_patients can reach 60 but
 was being clamped to 30 before bucketing, losing resolution exactly where it
 matters most: the worst-case states).
+
+CHANGED: save()/load() now go through qtable_store.py (SQLite) instead of
+raw np.save/np.load, so the trained Q-table lives in qtables/qtables.db
+alongside every other domain's tables, instead of a standalone .npy file.
 """
 
 import numpy as np
 import random
 import os
+
+from qtable_store import save_qtable, load_qtable
 
 
 # ── Discretize continuous obs into bins (matches hospital_env.py's real caps) ─
@@ -115,14 +121,15 @@ class HospitalAgent:
         s = discretize(obs, self.task)
         return int(np.argmax(self.Q[s]))
 
-    def save(self, path):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        np.save(path, self.Q)
+    # ── CHANGED: now saves to / loads from qtables/qtables.db (SQLite) ────────
+    # `task` param kept optional for backward compatibility with old call
+    # sites that passed a file path — it's ignored now, self.task is used
+    # as the DB key so every domain's tables live in one place.
+    def save(self, task=None):
+        save_qtable(f"hospital_{self.task}", self.Q)
 
-    def load(self, path):
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Q-table not found: {path}")
-        self.Q = np.load(path)
+    def load(self, task=None):
+        self.Q = load_qtable(f"hospital_{self.task}")
 
     def summary(self):
         if not self.episode_rewards:

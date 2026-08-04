@@ -3,6 +3,9 @@ UMORDA — Agriculture Training Script (Gymnasium-compatible)
 Trains Q-learning agents for all 3 agriculture tasks over 20,000 season-episodes
 each. soil_preparation runs until planted/window closes (<=25 steps); irrigation
 and pest_control run a full 40-step season (AgricultureEnv.SHIFT_LENGTH).
+
+CHANGED: Q-tables are now saved via agent.save() → qtable_store.py (SQLite),
+landing in qtables/qtables.db instead of a standalone .npy file.
 """
 
 import sys
@@ -90,9 +93,10 @@ def train_task(config):
     print(f"\n  ── Final Summary ──────────────────────────────")
     agent.summary()
 
-    save_path = f"qtables/agriculture_{task}.npy"
-    agent.save(save_path)
-    print(f"  Q-table saved → {save_path}")
+    # CHANGED: was np.save(f"qtables/agriculture_{task}.npy", agent.Q) via agent.save(path)
+    # now goes through qtable_store.py -> qtables/qtables.db
+    agent.save()
+    print(f"  Q-table saved → qtables.db (as 'agriculture_{task}')")
 
     os.makedirs("logs", exist_ok=True)
     np.savez(f"logs/history_{task}.npz",
@@ -118,8 +122,8 @@ def main():
     print("*" * 54)
     print("*   ALL TASKS TRAINED SUCCESSFULLY              *")
     print("*" * 54)
-    print("\n  Q-tables saved in qtables/\n")
+    print("\n  Q-tables saved in qtables/qtables.db\n")
 
 
 if __name__ == "__main__":
-    main()
+    main()    python -c "from agents.hospital_agent import HospitalAgent, Q_SHAPES; a = HospitalAgent(task='bed_allocation', q_shape=Q_SHAPES['bed_allocation'], n_actions=3); a.load(); print('Loaded successfully, Q shape:', a.Q.shape); print('Sample value:', a.Q[0][0][0])"

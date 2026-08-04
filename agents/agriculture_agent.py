@@ -6,11 +6,17 @@ and discretization bins matched to the REAL caps used inside agriculture_env.py.
 Follows the same structure as hospital_agent.py: proper bin sizes calibrated to
 the actual observation ranges (e.g., soil_ph 3.0–9.0, water_reservoir 0–100,
 resource_used 0–1000), not arbitrary guesses.
+
+CHANGED: save()/load() now go through qtable_store.py (SQLite) instead of
+raw np.save/np.load, so the trained Q-table lives in qtables/qtables.db
+alongside every other domain's tables, instead of a standalone .npy file.
 """
 
 import numpy as np
 import random
 import os
+
+from qtable_store import save_qtable, load_qtable
 
 
 # ── Discretize continuous obs into bins (matches agriculture_env.py's real caps) ─
@@ -144,16 +150,17 @@ class AgricultureAgent:
         s = discretize(obs, self.task)
         return int(np.argmax(self.Q[s]))
 
-    def save(self, path):
-        """Persist the Q-table to disk."""
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        np.save(path, self.Q)
+    # ── CHANGED: now saves to / loads from qtables/qtables.db (SQLite) ────────
+    # `task` param kept optional for backward compatibility with old call
+    # sites that passed a file path — it's ignored now, self.task is used
+    # as the DB key so every domain's tables live in one place.
+    def save(self, task=None):
+        """Persist the Q-table to qtables.db."""
+        save_qtable(f"agriculture_{self.task}", self.Q)
 
-    def load(self, path):
-        """Load a saved Q-table."""
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Q-table not found: {path}")
-        self.Q = np.load(path)
+    def load(self, task=None):
+        """Load a saved Q-table from qtables.db."""
+        self.Q = load_qtable(f"agriculture_{self.task}")
 
     def summary(self):
         """Print training summary stats."""
