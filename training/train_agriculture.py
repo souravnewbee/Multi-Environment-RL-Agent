@@ -126,4 +126,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()    python -c "from agents.hospital_agent import HospitalAgent, Q_SHAPES; a = HospitalAgent(task='bed_allocation', q_shape=Q_SHAPES['bed_allocation'], n_actions=3); a.load(); print('Loaded successfully, Q shape:', a.Q.shape); print('Sample value:', a.Q[0][0][0])"
+    main()
