@@ -9,7 +9,7 @@ FIXED VERSION:
 - Scale context added so LLM never confuses price/battery levels
 """
 
-import os, json
+import os, json, re
 import requests
 from groq import Groq
 
@@ -156,6 +156,46 @@ TASK_FIELD_SPECS = {
         "battery_level":    "current battery charge (integer, 0-9). 0=empty, 9=full, 5=medium",
         "home_consumption": "current home usage (integer, 0-9)",
     },
+
+    # FINANCE (Niloy)
+    "trading": {
+        "price_trend":     "market price direction (integer, -2 to +2). -2=crashing, -1=falling, 0=stable, 1=rising, 2=surging",
+        "shares_held":      "number of shares currently held (integer)",
+        "cash":             "cash available to spend (float)",
+        "portfolio_value":  "total value of holdings + cash (float)",
+    },
+    "savings": {
+        "monthly_income":    "income received per month (float)",
+        "current_savings":   "amount currently saved (float)",
+        "expenses":          "monthly expenses (float)",
+        "months_remaining":  "months left in the planning horizon (integer)",
+    },
+    "budget": {
+        "total_budget":          "total budget allocated (float)",
+        "amount_spent":          "amount already spent (float)",
+        "urgent_requests":       "number of urgent/pending spending requests (integer)",
+        "departments_remaining": "departments still needing allocation (integer)",
+    },
+
+    # AGRICULTURE (Niloy)
+    "soil_preparation": {
+        "soil_ph":          "soil pH level (float, 3.0-9.0). below 5.5=too acidic, 6.0-7.0=ideal, above 7.5=too alkaline",
+        "organic_matter":   "organic matter content (integer, 0-100). higher is better for fertility",
+        "drainage_quality": "drainage quality (integer, 0-100). higher = better drained soil",
+        "days_remaining":   "days remaining before planting deadline (integer)",
+    },
+    "irrigation": {
+        "water_reservoir": "water reservoir level (integer, 0-100). 0=empty, 100=full",
+        "crop_stress":     "crop water stress level (integer, 0-100). higher = more stressed/needs water",
+        "rainfall_trend":  "rainfall direction (integer, -2 to +2). -2=drought worsening, 0=steady, 2=heavy rain expected",
+        "days_remaining":  "days remaining in the growing period (integer)",
+    },
+    "pest_control": {
+        "total_resource":   "total pest-control resource budget available (float)",
+        "resource_used":    "resource already used (float)",
+        "urgent_outbreaks": "number of urgent pest outbreaks needing action (integer)",
+        "plots_remaining":  "plots not yet treated (integer)",
+    },
 }
 
 TASK_DESCRIPTIONS = {
@@ -171,6 +211,14 @@ TASK_DESCRIPTIONS = {
     "solar_scheduling":   "deciding how to use solar power being generated right now (use directly, store in battery, or buy from grid)",
     "battery_management": "deciding when to charge, discharge, or keep battery idle",
     "grid_interaction":   "deciding when to buy from grid, sell surplus solar to grid, or stay self-sufficient",
+    # FINANCE
+    "trading": "buy/sell/hold decisions on a market asset",
+    "savings": "deciding how much to save vs spend given income and expenses",
+    "budget":  "allocating a limited budget across departments and urgent requests",
+    # AGRICULTURE
+    "soil_preparation": "deciding soil amendment actions before planting (pH, organic matter, drainage)",
+    "irrigation":        "deciding when and how much to irrigate crops based on water levels and stress",
+    "pest_control":       "allocating pest-control resources across plots and outbreaks",
 }
 
 # Keywords that strongly suggest each energy task
@@ -256,16 +304,10 @@ def extract_state(task, user_message, known_state, conversation_history=None):
             f"{m['role']}: {m['content']}" for m in conversation_history[-4:]
         )
 
-    system_prompt = f"""You are a precise data extractor for UMORDA energy management.
-Task: {task} — {TASK_DESCRIPTIONS.get(task, '')}
+    energy_tasks = {"solar_scheduling", "battery_management", "grid_interaction"}
+    scale_block  = SCALE_CONTEXT if task in energy_tasks else ""
 
-{SCALE_CONTEXT}
-
-Fields to extract:
-{field_desc}
-
-CRITICAL EXTRACTION RULES:
-1. Rain / cloudy / overcast / no sun / night → solar_output = 0, solar_surplus = 0
+    energy_rules = """1. Rain / cloudy / overcast / no sun / night → solar_output = 0, solar_surplus = 0
 2. "High price" / "expensive grid" / "costly grid" → grid_price = 2
 3. "Cheap grid" / "low price" → grid_price = 0
 4. "Some charge" / "some battery" → battery_level = 5 (medium)
@@ -273,7 +315,39 @@ CRITICAL EXTRACTION RULES:
 6. "Full battery" → battery_level = 9
 7. "A lot of solar" / "panels working well" → solar_output = 7
 8. "Weak solar" / "little sun" → solar_output = 2
-9. Only update fields the message mentions. Keep others from known state.
+""" if task in energy_tasks else ""
+
+    finance_rules = """1. "Market crashing" / "prices falling" / "prices dropping" → price_trend = -2
+2. "Prices down slightly" / "slipping" → price_trend = -1
+3. "Market stable" / "flat" → price_trend = 0
+4. "Prices up" / "rising" → price_trend = 1
+5. "Market surging" / "prices soaring" → price_trend = 2
+6. "Low on cash" / "tight budget" phrases should lower cash/current_savings, not price_trend.
+7. "Urgent request" / "emergency spending" → increase urgent_requests, not other fields.
+""" if task in {"trading", "savings", "budget"} else ""
+
+    agriculture_rules = """1. "Soil is too acidic" / "pH is low" → soil_ph below 5.5
+2. "Soil is alkaline" / "pH is high" → soil_ph above 7.5
+3. "Heavy rain expected" / "lots of rain coming" → rainfall_trend = 2
+4. "Drought" / "no rain" / "dry spell" → rainfall_trend = -2
+5. "Reservoir is low" / "water is scarce" → water_reservoir low (e.g. 10-20)
+6. "Reservoir is full" / "plenty of water" → water_reservoir high (e.g. 80-100)
+7. "Crops stressed" / "wilting" → crop_stress high (e.g. 70-90)
+8. "Pest outbreak" / "infestation" → increase urgent_outbreaks
+""" if task in {"soil_preparation", "irrigation", "pest_control"} else ""
+
+    domain_rules = energy_rules + finance_rules + agriculture_rules
+
+    system_prompt = f"""You are a precise data extractor for UMORDA.
+Task: {task} — {TASK_DESCRIPTIONS.get(task, '')}
+
+{scale_block}
+
+Fields to extract:
+{field_desc}
+
+CRITICAL EXTRACTION RULES:
+{domain_rules}9. Only update fields the message mentions. Keep others from known state.
 10. If value is impossible → needs_clarification = true.
 
 Output ONLY this JSON:
@@ -312,14 +386,31 @@ Extract and output JSON only."""
 # =============================================================================
 # 3. EXPLAINER — FIXED: human friendly, no raw Q-values, correct scale words
 # =============================================================================
+def _trim_to_sentences(text: str, max_sentences: int = 2) -> str:
+    """
+    Hard-enforce a sentence limit. The LLM's own "2 sentences max" instruction
+    is a soft constraint — models sometimes ignore it — so this trims the
+    response down after the fact, rather than relying on the prompt alone.
+    """
+    text = text.strip()
+    # Split on '.', '!', or '?' followed by a space or end of string.
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    trimmed = " ".join(sentences[:max_sentences]).strip()
+    return trimmed if trimmed else text
+
+
 def explain_decision(task, state, action, reason_hint, policy_chunks):
     """
     Explains agent decision in plain human-friendly language.
     FIXED: No raw Q-values, correct scale descriptions, clear reasoning.
+    CHANGED: describe_state() and the system prompt were hardcoded for the
+    Energy domain only ("friendly energy advisor... home owner"), which
+    produced broken/irrelevant framing (e.g. grocery-store analogies) when
+    called for Hospital or Traffic decisions. Now domain-aware and generic.
     """
     policy_text = "\n\n".join(c["text"] for c in policy_chunks)
 
-    # Convert numeric state to human-friendly descriptions
+    # Convert numeric state to human-friendly descriptions, per domain
     def describe_state(task, state):
         desc = []
         if task == "solar_scheduling":
@@ -343,22 +434,49 @@ def explain_decision(task, state, action, reason_hint, policy_chunks):
             desc.append(f"solar surplus is {'none' if surp==0 else 'small' if surp<=3 else 'good' if surp<=6 else 'large'} ({surp}/9)")
             batt  = state.get("battery_level", 0)
             desc.append(f"battery is {'empty' if batt<=1 else 'low' if batt<=3 else 'medium' if batt<=6 else 'high'} ({batt}/9)")
-        return ", ".join(desc)
+
+        elif task == "bed_allocation":
+            desc.append(f"{state.get('free_beds', 0)} free beds")
+            desc.append(f"{state.get('waiting_patients', 0)} patients waiting")
+        elif task == "er_queue":
+            desc.append(f"{state.get('emergency_queue', 0)} emergency patients waiting")
+            desc.append(f"{state.get('normal_queue', 0)} normal patients waiting")
+        elif task == "staff_allocation":
+            desc.append(f"{state.get('available_doctors', 0)} doctors on duty")
+            desc.append(f"patient load of {state.get('patient_load', 0)}")
+
+        elif task == "intersection":
+            desc.append(f"{state.get('cars_NS', 0)} cars N/S (waited {state.get('wait_NS', 0)} steps)")
+            desc.append(f"{state.get('cars_EW', 0)} cars E/W (waited {state.get('wait_EW', 0)} steps)")
+        elif task == "pedestrian":
+            desc.append(f"{state.get('peds', 0)} pedestrians waiting ({state.get('ped_wait', 0)} steps)")
+            desc.append(f"{state.get('vehs', 0)} vehicles waiting ({state.get('veh_wait', 0)} steps)")
+        elif task == "parking":
+            desc.append(f"{state.get('spots', 0)} spots available")
+            desc.append(f"queue waiting {state.get('queue_wait', 0)} steps")
+
+        return ", ".join(desc) if desc else str(state)
 
     friendly_state = describe_state(task, state)
+    energy_tasks = {"solar_scheduling", "battery_management", "grid_interaction"}
+    scale_block  = SCALE_CONTEXT if task in energy_tasks else ""
 
-    system_prompt = f"""You are a friendly energy advisor explaining a smart home decision.
-Write a SHORT clear explanation (2-3 sentences MAX) for a regular home owner.
+    energy_rules = """- NEVER say "relatively low" for grid_price=2 — price 2 is EXPENSIVE, always say so!
+- NEVER say battery level 5 is "low" — 5/9 is MEDIUM.
+""" if task in energy_tasks else ""
 
-{SCALE_CONTEXT}
+    system_prompt = f"""You are a clear, concise decision-explainer for the UMORDA system.
+Explain the automated decision below in plain, direct language for a non-technical person.
+
+{scale_block}
 
 STRICT RULES:
-- NEVER mention Q-table values or numbers like "79.593" — these mean nothing to users.
-- NEVER say "relatively low" for grid_price=2 — price 2 is EXPENSIVE, always say so!
-- NEVER say battery level 5 is "low" — 5/9 is MEDIUM.
-- Use simple everyday language — imagine explaining to your neighbor.
-- Focus on WHY the decision makes sense in real life.
-- Keep it under 3 sentences.
+- NEVER mention Q-table values or raw numbers like "79.593" — these mean nothing to users.
+{energy_rules}- State the situation and the decision DIRECTLY. Do NOT use analogies, metaphors,
+  or comparisons to unrelated scenarios (e.g. do NOT compare a hospital ER to a
+  grocery store, or anything similar). Say what is actually happening.
+- Use simple everyday language, but stay on-topic and factual.
+- Keep it to 2 sentences MAXIMUM. Shorter is better.
 """
 
     user_prompt = f"""Situation: {friendly_state}
@@ -368,25 +486,28 @@ Internal reason: {reason_hint}
 Policy context:
 {policy_text}
 
-Explain this decision simply to a home owner. No Q-values. No technical jargon."""
+Explain this decision in plain language, 2 sentences max, no analogies, no Q-values."""
 
-    return _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=200)
+    raw = _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=120)
+    return _trim_to_sentences(raw, max_sentences=2)
 
 
 # =============================================================================
 # 4. EXPLAINER WITHOUT POLICY (for comparison)
 # =============================================================================
 def explain_ungrounded(task, state, action, reason_hint):
-    system_prompt = """You are a friendly energy advisor. Explain a smart home 
-energy decision in 2-3 simple sentences. No Q-values. No technical terms."""
+    system_prompt = """You are a clear, concise decision-explainer. Explain the automated
+decision in 2 simple sentences MAX. No Q-values. No technical terms. No analogies
+or comparisons to unrelated scenarios — describe what is actually happening."""
 
     user_prompt = f"""Task: {task}
 Situation: {json.dumps(state)}
 Decision: {action}
 
-Explain simply to a home owner."""
+Explain simply and directly, 2 sentences max."""
 
-    return _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=200)
+    raw = _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=120)
+    return _trim_to_sentences(raw, max_sentences=2)
 
 
 # =============================================================================
