@@ -1,386 +1,613 @@
-# =============================================================================
-# UMORDA — Energy Domain Environment
-# File: environments/energy_env.py
-#
-# Domain: Balcony Solar Panel (Balkonkraftwerk) Optimization
-#
-# DATASET INTEGRATION (3 steps as per plan):
-#   Step 1 — Load CSV once when environment starts
-#   Step 2 — reset() picks a random row from real data
-#   Step 3 — _next_raw_state() moves to next row in real data
-#
-# Data files (run fetch scripts first):
-#   data/energy/solar_data.csv    ← from NASA POWER API
-#   data/energy/grid_price.csv    ← from BPDB tariff slabs
-#
-# If CSV files are missing → falls back to random (nothing breaks)
-# =============================================================================
+"""
+environments/agriculture_env.py
+================================
+Multi-task Agriculture Environment for UMORDA.
+Gymnasium-compatible. Follows the exact same pattern as HospitalEnv.
+
+NEW: Real-time weather integration via SQLAlchemy + Open-Meteo.
+     When real weather data is available (run weather_fetcher.py first),
+     the environment uses actual Bangladesh weather patterns instead of
+     random numbers. Falls back to simulation if DB is not available.
+
+Three tasks:
+    "soil_preparation" -- Soil preparation for exotic fruit cultivation
+    "irrigation"       -- Smart irrigation using real rainfall/weather data
+    "pest_control"     -- Treatment resource allocation across farm plots
+
+Run weather_fetcher.py first to populate the weather database:
+    python data/weather_fetcher.py
+"""
 
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
+import random
 import os
+import sys
+from datetime import date, timedelta
 
-# ── CSV paths ──────────────────────────────────────────────────────────────────
-_BASE = os.path.join(os.path.dirname(__file__), "..", "data", "energy")
-SOLAR_CSV = os.path.join(_BASE, "solar_data.csv")
-PRICE_CSV = os.path.join(_BASE, "grid_price.csv")
+# ── Try importing weather DB (optional -- falls back to simulation) ───────────
+try:
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from data.weather_fetcher import WeatherFetcher
+    WEATHER_DB_AVAILABLE = True
+except ImportError:
+    WEATHER_DB_AVAILABLE = False
 
 
-class EnergyEnv(gym.Env):
-    """
-    Multi-task Balcony Solar Panel Optimization Environment.
-
-    Tasks:
-        solar_scheduling   — how to use solar power right now
-        battery_management — when to charge/discharge battery
-        grid_interaction   — when to buy/sell grid electricity
-
-    Real data:
-        solar_output → NASA POWER hourly irradiance for Dhaka
-        grid_price   → BPDB Bangladesh electricity tariff
-    """
-
+class AgricultureEnv(gym.Env):
     metadata = {"render_modes": ["human"]}
 
-    TASK_CONFIG = {
-        "solar_scheduling": {
-            "description": "Balcony solar panel power scheduling",
-            "state_vars":  ["solar_output", "home_consumption",
-                            "battery_level", "time_of_day"],
-            "state_bins":  [10, 10, 10, 4],
-            "n_actions":   3,
-            "action_meanings": [
-                "Use Solar Directly",
-                "Store in Battery",
-                "Buy from Grid",
-            ],
-            "objectives": ["Maximize solar usage", "Minimize grid dependency"],
-        },
-        "battery_management": {
-            "description": "Battery storage charge/discharge optimization",
-            "state_vars":  ["battery_level", "solar_output",
-                            "grid_price", "home_consumption"],
-            "state_bins":  [10, 10, 3, 10],
-            "n_actions":   3,
-            "action_meanings": [
-                "Charge Battery",
-                "Discharge Battery",
-                "Keep Battery Idle",
-            ],
-            "objectives": ["Maximize battery efficiency", "Minimize electricity cost"],
-        },
-        "grid_interaction": {
-            "description": "Grid energy buying and selling optimization",
-            "state_vars":  ["grid_price", "solar_surplus",
-                            "battery_level", "home_consumption"],
-            "state_bins":  [3, 10, 10, 10],
-            "n_actions":   3,
-            "action_meanings": [
-                "Buy from Grid",
-                "Sell to Grid",
-                "Stay Self-Sufficient",
-            ],
-            "objectives": ["Minimize electricity cost", "Maximize earnings from surplus"],
-        },
-    }
+    SHIFT_LENGTH = 40   # steps per episode (days in active management phase)
 
-    def __init__(self, task="solar_scheduling", render_mode=None):
+    def __init__(self, task="soil_preparation", render_mode=None,
+                 use_real_weather=True):
         super().__init__()
-        assert task in self.TASK_CONFIG, \
-            f"Unknown task '{task}'. Choose from: {list(self.TASK_CONFIG.keys())}"
+        self.task            = task
+        self.render_mode     = render_mode
+        self.use_real_weather = use_real_weather and WEATHER_DB_AVAILABLE
+        self.state           = None
+        self.t               = 0
+        self._weather_cache  = []   # loaded once per episode from DB
+        self._weather_idx    = 0    # current position in weather cache
 
-        self.task        = task
-        self.render_mode = render_mode
-        self.cfg         = self.TASK_CONFIG[task]
+        # ── Load weather DB if available ──────────────────────────────────────
+        self._fetcher = None
+        if self.use_real_weather:
+            try:
+                self._fetcher = WeatherFetcher()
+                n = self._fetcher.total_records()
+                if n < 30:
+                    print(f"  [AgricultureEnv] Only {n} weather records in DB.")
+                    print(f"  Run: python data/weather_fetcher.py")
+                    self.use_real_weather = False
+                else:
+                    print(f"  [AgricultureEnv] Real weather DB loaded ({n} records).")
+            except Exception as e:
+                print(f"  [AgricultureEnv] Weather DB unavailable: {e}")
+                self.use_real_weather = False
 
-        state_size = int(np.prod(self.cfg["state_bins"]))
-        self.observation_space = spaces.Discrete(state_size)
-        self.action_space      = spaces.Discrete(self.cfg["n_actions"])
+        if not self.use_real_weather:
+            print("  [AgricultureEnv] Using synthetic weather simulation.")
 
-        self._raw_state       = None
-        self._state           = None
-        self._step_count      = 0
-        self.max_steps        = 100
-        self._data_idx        = 0
-        self._using_real_data = False
+        # ── Define state/action spaces per task ──────────────────────────────
+        if self.task == "soil_preparation":
+            self.state_vars = [
+                "soil_ph",
+                "organic_matter",
+                "drainage_quality",
+                "days_remaining",
+            ]
+            self.actions   = ["Add Compost", "Adjust pH", "Improve Drainage", "Plant Now"]
+            self.n_actions = 4
+            self.PH_TARGET_LOW,  self.PH_TARGET_HIGH = 5.5, 7.0
+            self.OM_TARGET       = 60
+            self.DRAINAGE_TARGET = 60
+            self.PLANTING_WINDOW = 25
+            self.observation_space = spaces.Box(
+                low  = np.array([3.0,  0,  0,  0], dtype=np.float32),
+                high = np.array([9.0, 100, 100, self.PLANTING_WINDOW], dtype=np.float32),
+            )
 
-        # Real data arrays (loaded from CSV)
-        self._solar_rows = []   # list of (solar_scaled, time_of_day)
-        self._price_map  = {}   # hour → price_level
+        elif self.task == "irrigation":
+            self.state_vars = [
+                "water_reservoir",
+                "crop_stress",
+                "rainfall_trend",   # -2 drought → +2 heavy rain (from real DB or synthetic)
+                "days_remaining",
+            ]
+            self.actions   = ["Irrigate Heavy", "Irrigate Light", "Skip Irrigation"]
+            self.n_actions = 3
+            self.observation_space = spaces.Box(
+                low  = np.array([0,  0, -2, 0], dtype=np.float32),
+                high = np.array([100, 100, 2, self.SHIFT_LENGTH], dtype=np.float32),
+            )
 
-        # ── STEP 1: Load CSV files once ───────────────────────────────────
-        self._load_csv_data()
+        elif self.task == "pest_control":
+            self.state_vars = [
+                "total_resource",
+                "resource_used",
+                "urgent_outbreaks",
+                "plots_remaining",
+            ]
+            self.actions   = ["Full Treatment", "Partial Treatment", "Defer"]
+            self.n_actions = 3
+            self.observation_space = spaces.Box(
+                low  = np.array([0,    0,  0,  0], dtype=np.float32),
+                high = np.array([1000, 1000, 10, 10], dtype=np.float32),
+            )
 
-    # ------------------------------------------------------------------
-    # STEP 1 — Load CSV files once when environment starts
-    # ------------------------------------------------------------------
-    def _load_csv_data(self):
+        else:
+            raise ValueError(f"Unknown task: {task}")
+
+        self.action_space = spaces.Discrete(self.n_actions)
+
+    # ── Weather loading ───────────────────────────────────────────────────────
+    def _load_weather_sequence(self):
         """
-        Reads solar_data.csv and grid_price.csv into memory once.
-        If files are missing, silently falls back to random behavior.
+        Load a sequence of SHIFT_LENGTH weather records from DB.
+        Picks a random start date to vary episodes across seasons.
+        Falls back to synthetic generation if DB is unavailable.
         """
+        if not self.use_real_weather or not self._fetcher:
+            return self._synthetic_weather_sequence()
+
         try:
-            import pandas as pd
+            # Pick random start in last 2 years, leave room for full episode
+            today      = date.today()
+            max_offset = 700
+            offset     = random.randint(self.SHIFT_LENGTH, max_offset)
+            end_date   = today - timedelta(days=offset)
+            start_date = end_date - timedelta(days=self.SHIFT_LENGTH)
 
-            solar_ok = False
-            price_ok = False
+            records = self._fetcher.get_date_range(start_date, end_date)
 
-            # Load NASA POWER solar data
-            if os.path.exists(SOLAR_CSV):
-                df = pd.read_csv(SOLAR_CSV)
-                # Store only what we need: (solar_scaled, time_of_day)
-                self._solar_rows = list(
-                    zip(df["solar_output_scaled"].astype(int),
-                        df["time_of_day"].astype(int))
-                )
-                solar_ok = True
+            if len(records) < 10:
+                return self._synthetic_weather_sequence()
 
-            # Load BPDB grid prices
-            if os.path.exists(PRICE_CSV):
-                df = pd.read_csv(PRICE_CSV)
-                for _, row in df.iterrows():
-                    self._price_map[int(row["hour"])] = int(row["price_level"])
-                price_ok = True
+            # Pad with synthetic if DB records < SHIFT_LENGTH
+            while len(records) < self.SHIFT_LENGTH:
+                records.append(self._synthetic_day())
 
-            if solar_ok and price_ok:
-                self._using_real_data = True
+            return records[:self.SHIFT_LENGTH]
 
         except Exception:
-            self._using_real_data = False
+            return self._synthetic_weather_sequence()
 
-    # ------------------------------------------------------------------
-    # State encoding / decoding
-    # ------------------------------------------------------------------
-    def _encode_state(self, raw: list) -> int:
-        bins = self.cfg["state_bins"]
-        idx, multiplier = 0, 1
-        for i in reversed(range(len(raw))):
-            idx += int(np.clip(raw[i], 0, bins[i]-1)) * multiplier
-            multiplier *= bins[i]
-        return idx
+    def _synthetic_weather_sequence(self):
+        """Generate synthetic weather for one episode."""
+        # Pick a random season to make episodes varied
+        season = random.choice(["monsoon", "dry", "pre_monsoon", "winter"])
+        season_params = {
+            "monsoon":     {"rain_mu": 15.0, "rain_sigma": 12.0, "trend_bias":  1},
+            "dry":         {"rain_mu":  1.0, "rain_sigma":  2.0, "trend_bias": -1},
+            "pre_monsoon": {"rain_mu":  5.0, "rain_sigma":  6.0, "trend_bias":  0},
+            "winter":      {"rain_mu":  0.5, "rain_sigma":  1.0, "trend_bias": -1},
+        }
+        p     = season_params[season]
+        seq   = []
+        trend = p["trend_bias"]
+        for _ in range(self.SHIFT_LENGTH):
+            rain = max(0, np.random.normal(p["rain_mu"], p["rain_sigma"]))
+            et0  = random.uniform(3, 7)
+            surplus = rain - et0
+            if surplus >= 15:   trend = min( 2, trend + 1)
+            elif surplus >= 5:  trend = min( 2, trend)
+            elif surplus >= -3: trend = max(-2, trend)
+            elif surplus >= -10:trend = max(-2, trend - 1)
+            else:               trend = max(-2, trend - 1)
+            seq.append({
+                "rain":           round(rain, 2),
+                "temp_mean":      round(random.uniform(18, 38), 1),
+                "rainfall_trend": int(trend),
+                "drought_index":  round(surplus, 2),
+                "is_monsoon":     random.choice([True, False]),
+                "evapotranspiration": round(et0, 2),
+                "source":         "synthetic",
+            })
+        return seq
 
-    def decode_state(self, state_idx: int) -> list:
-        bins, values = self.cfg["state_bins"], []
-        for b in reversed(bins):
-            values.append(state_idx % b)
-            state_idx //= b
-        return list(reversed(values))
+    def _synthetic_day(self):
+        rain = max(0, np.random.normal(5.0, 8.0))
+        et0  = random.uniform(3, 7)
+        return {
+            "rain":           round(rain, 2),
+            "temp_mean":      round(random.uniform(20, 36), 1),
+            "rainfall_trend": self._rain_to_trend(rain, et0),
+            "drought_index":  round(rain - et0, 2),
+            "is_monsoon":     False,
+            "evapotranspiration": round(et0, 2),
+            "source":         "synthetic_fallback",
+        }
 
-    def _sample_random_state(self) -> list:
-        """Random fallback state when CSV not available."""
-        return [np.random.randint(0, b) for b in self.cfg["state_bins"]]
+    @staticmethod
+    def _rain_to_trend(rain, et0):
+        surplus = rain - et0
+        if surplus >= 15:  return  2
+        if surplus >= 5:   return  1
+        if surplus >= -3:  return  0
+        if surplus >= -10: return -1
+        return -2
 
-    # ------------------------------------------------------------------
-    # STEP 2 — reset() picks a random row from real data
-    # ------------------------------------------------------------------
+    def _current_weather(self) -> dict:
+        """Return current day's weather from cache."""
+        if self._weather_cache and self._weather_idx < len(self._weather_cache):
+            return self._weather_cache[self._weather_idx]
+        return self._synthetic_day()
+
+    # ── Reset ─────────────────────────────────────────────────────────────────
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self._step_count = 0
+        self.t = 0
 
-        if self._using_real_data:
-            # Pick a random starting row from the CSV data
-            max_start      = max(1, len(self._solar_rows) - self.max_steps - 1)
-            self._data_idx = np.random.randint(0, max_start)
-            self._raw_state = self._build_state_from_csv(self._data_idx)
+        # Load a fresh weather sequence for this episode
+        if self.task in ("irrigation", "soil_preparation"):
+            self._weather_cache = self._load_weather_sequence()
+            self._weather_idx   = 0
+
+        if self.task == "soil_preparation":
+            self.state = {
+                "soil_ph":          round(random.uniform(4.0, 8.0), 2),
+                "organic_matter":   float(random.randint(10, 40)),
+                "drainage_quality": float(random.randint(10, 40)),
+                "days_remaining":   float(self.PLANTING_WINDOW),
+            }
+
+        elif self.task == "irrigation":
+            w = self._current_weather()
+            self.state = {
+                "water_reservoir": float(random.randint(40, 100)),
+                "crop_stress":     float(random.randint(0, 30)),
+                # Use real rainfall trend if available, else synthetic
+                "rainfall_trend":  float(w.get("rainfall_trend", random.choice([-2,-1,0,1,2]))),
+                "days_remaining":  float(self.SHIFT_LENGTH),
+            }
+
+        elif self.task == "pest_control":
+            self.state = {
+                "total_resource":   float(random.randint(500, 1000)),
+                "resource_used":    0.0,
+                "urgent_outbreaks": float(random.randint(0, 5)),
+                "plots_remaining":  float(random.randint(4, 10)),
+            }
+
+        return self._obs(), {}
+
+    # ── Step ──────────────────────────────────────────────────────────────────
+    def step(self, action_index):
+        action     = self.actions[action_index]
+        terminated = False
+
+        if self.task == "soil_preparation":
+            reward, terminated, info = self._step_soil_preparation(action)
+        elif self.task == "irrigation":
+            reward, info = self._step_irrigation(action)
+        elif self.task == "pest_control":
+            reward, info = self._step_pest_control(action)
+
+        self.t += 1
+        self._weather_idx += 1   # advance weather timeline
+
+        if self.task == "soil_preparation":
+            self.state["days_remaining"] = max(0, self.PLANTING_WINDOW - self.t)
+            truncated = (self.t >= self.PLANTING_WINDOW) and not terminated
+            if truncated:
+                reward -= 20.0
+                info["missed_window"] = True
+                info["result"] = info.get("result","") + " | Planting window closed!"
+        elif self.task == "irrigation":
+            self.state["days_remaining"] = max(0, self.SHIFT_LENGTH - self.t)
+            truncated = self.t >= self.SHIFT_LENGTH
         else:
-            self._raw_state = self._sample_random_state()
+            truncated = self.t >= self.SHIFT_LENGTH
 
-        self._state = self._encode_state(self._raw_state)
-        return self._state, {}
+        info["step"]         = self.t
+        info["weather_source"] = (
+            "real_db" if self.use_real_weather else "synthetic"
+        )
 
-    def _build_state_from_csv(self, idx: int) -> list:
-        """Build a state vector from real CSV data at given row index."""
-        row         = self._solar_rows[idx % len(self._solar_rows)]
-        solar       = int(row[0])          # already 0-9 scaled
-        time_of_day = int(row[1])
+        if self.render_mode == "human":
+            self.render()
 
-        # Map time_of_day to representative hour for BPDB lookup
-        hour_map   = {0: 9, 1: 14, 2: 18, 3: 23}
-        hour       = hour_map.get(time_of_day, 12)
-        grid_price = self._price_map.get(hour, 1)
+        return self._obs(), reward, terminated, truncated, info
 
-        # Realistic home consumption by time of day
-        base = {0: 4, 1: 3, 2: 6, 3: 2}
-        home_consumption = int(np.clip(
-            base[time_of_day] + np.random.randint(-1, 2), 0, 9
-        ))
-        battery_level = np.random.randint(2, 8)
+    # ══════════════════════════════════════════════════════════════════════════
+    # Task 1 — Soil Preparation (unchanged logic, now gets real temp context)
+    # ══════════════════════════════════════════════════════════════════════════
+    def _step_soil_preparation(self, action):
+        ph       = self.state["soil_ph"]
+        om       = self.state["organic_matter"]
+        drainage = self.state["drainage_quality"]
+        terminated = False
+        info = {}
 
-        if self.task == "solar_scheduling":
-            return [solar, home_consumption, battery_level, time_of_day]
-        elif self.task == "battery_management":
-            return [battery_level, solar, grid_price, home_consumption]
-        elif self.task == "grid_interaction":
-            surplus = max(0, solar - home_consumption)
-            return [grid_price, surplus, battery_level, home_consumption]
+        # Real weather context for soil preparation
+        w = self._current_weather()
+        temp     = w.get("temp_mean", 28.0)
+        rain     = w.get("rain", 5.0)
+        info["weather"] = {"temp": temp, "rain": round(rain, 1)}
 
-        return self._sample_random_state()
+        if action == "Add Compost":
+            # Compost effectiveness slightly reduced in extreme heat
+            heat_factor = 1.0 if temp < 35 else 0.7
+            gain = random.uniform(8, 15) * heat_factor
+            self.state["organic_matter"] = min(100, om + gain)
+            self.state["soil_ph"]        = max(3.0, ph - random.uniform(0, 0.15))
+            r_perf = 4.0 if om < self.OM_TARGET else 1.0
+            r_cost = -2.0
+            r_fair = 0.0
+            info["result"] = (f"Added compost -- organic matter now "
+                              f"{self.state['organic_matter']:.1f}%"
+                              f"{' (heat-reduced)' if heat_factor < 1 else ''}")
 
-    # ------------------------------------------------------------------
-    # Gymnasium step
-    # ------------------------------------------------------------------
-    def step(self, action: int):
-        assert self.action_space.contains(action)
-        reward          = self._compute_reward(action)
-        self._raw_state = self._next_raw_state(action)
-        self._state     = self._encode_state(self._raw_state)
-        self._step_count += 1
-        terminated = self._step_count >= self.max_steps
-        return self._state, reward, terminated, False, {}
-
-    # ------------------------------------------------------------------
-    # STEP 3 — _next_raw_state() moves to next row in real data
-    # ------------------------------------------------------------------
-    def _next_raw_state(self, action: int) -> list:
-        if self._using_real_data:
-            # Move to next row in the real CSV data
-            self._data_idx += 1
-            next_state = self._build_state_from_csv(self._data_idx)
-            # Apply action effects on top of the real data transition
-            return self._apply_action_effects(action, next_state)
-        else:
-            return self._next_random_state(action)
-
-    def _apply_action_effects(self, action: int, state: list) -> list:
-        """Apply the agent's action effects on the next real data state."""
-        bins = self.cfg["state_bins"]
-
-        if self.task == "solar_scheduling":
-            solar, consumption, battery, time = state
-            if action == 1:   # Store in Battery
-                battery = min(bins[2]-1, battery + min(solar, 2))
-            elif action == 0: # Use Solar Directly
-                solar = max(0, solar - 1)
-            return [solar, consumption, battery, time]
-
-        elif self.task == "battery_management":
-            battery, solar, price, consumption = state
-            if action == 0:   battery = min(bins[0]-1, battery + 1)   # Charge
-            elif action == 1: battery = max(0, battery - 1)           # Discharge
-            return [battery, solar, price, consumption]
-
-        elif self.task == "grid_interaction":
-            price, surplus, battery, consumption = state
-            if action == 1:   surplus = max(0, surplus - 1)   # Sell
-            elif action == 2: battery = max(0, battery - 1)   # Self-sufficient
-            return [price, surplus, battery, consumption]
-
-        return state
-
-    def _next_random_state(self, action: int) -> list:
-        """Random state transition fallback."""
-        raw  = self._raw_state.copy()
-        bins = self.cfg["state_bins"]
-
-        if self.task == "solar_scheduling":
-            solar, consumption, battery, time = raw
-            if action == 0:
-                solar       = max(0, solar - np.random.randint(1, 3))
-                consumption = max(0, consumption - np.random.randint(1, 3))
-            elif action == 1:
-                battery = min(bins[2]-1, battery + min(solar, np.random.randint(1, 3)))
-                solar   = max(0, solar - np.random.randint(1, 3))
+        elif action == "Adjust pH":
+            if ph < self.PH_TARGET_LOW:
+                self.state["soil_ph"] = min(9.0, ph + random.uniform(0.3, 0.6))
+            elif ph > self.PH_TARGET_HIGH:
+                self.state["soil_ph"] = max(3.0, ph - random.uniform(0.3, 0.6))
             else:
-                consumption = max(0, consumption - np.random.randint(1, 3))
-            time = (time + np.random.randint(0, 2)) % 4
-            if time == 1:   solar = min(bins[0]-1, solar + np.random.randint(1, 4))
-            elif time == 0: solar = min(bins[0]-1, solar + np.random.randint(0, 3))
-            else:           solar = max(0, solar - np.random.randint(0, 3))
-            consumption = min(bins[1]-1, consumption + np.random.randint(0, 3))
-            raw = [solar, consumption, battery, time]
+                self.state["soil_ph"] = ph + random.uniform(-0.1, 0.1)
+            in_range = self.PH_TARGET_LOW <= self.state["soil_ph"] <= self.PH_TARGET_HIGH
+            r_perf = 5.0 if in_range else 1.0
+            r_cost = -2.0
+            r_fair = 0.0
+            info["result"] = f"Adjusted pH -- now {self.state['soil_ph']:.2f}"
 
-        elif self.task == "battery_management":
-            battery, solar, price, consumption = raw
-            if action == 0:
-                battery = min(bins[0]-1, battery + np.random.randint(1, 3))
-                solar   = max(0, solar - np.random.randint(0, 2))
-            elif action == 1:
-                battery     = max(0, battery - np.random.randint(1, 3))
-                consumption = max(0, consumption - np.random.randint(1, 3))
-            price       = int(np.clip(price + np.random.randint(-1, 2), 0, 2))
-            solar       = min(bins[1]-1, max(0, solar + np.random.randint(-2, 3)))
-            consumption = min(bins[3]-1, max(0, consumption + np.random.randint(-1, 2)))
-            raw = [battery, solar, price, consumption]
+        elif action == "Improve Drainage":
+            # Heavy rain days make drainage improvement more urgent (+bonus)
+            rain_bonus = 2.0 if rain > 20 else 0.0
+            gain = random.uniform(8, 15)
+            self.state["drainage_quality"] = min(100, drainage + gain)
+            r_perf = 4.0 + rain_bonus if drainage < self.DRAINAGE_TARGET else 1.0
+            r_cost = -3.0
+            r_fair = 0.0
+            info["result"] = (f"Improved drainage -- now "
+                              f"{self.state['drainage_quality']:.1f}%"
+                              f"{' (+rain bonus)' if rain_bonus > 0 else ''}")
 
-        elif self.task == "grid_interaction":
-            price, surplus, battery, consumption = raw
-            if action == 0:   consumption = max(0, consumption - np.random.randint(1, 3))
-            elif action == 1: surplus = max(0, surplus - np.random.randint(1, 3))
+        elif action == "Plant Now":
+            ph_ok    = self.PH_TARGET_LOW <= self.state["soil_ph"] <= self.PH_TARGET_HIGH
+            om_ok    = self.state["organic_matter"]   >= self.OM_TARGET
+            drain_ok = self.state["drainage_quality"] >= self.DRAINAGE_TARGET
+            checks   = sum([ph_ok, om_ok, drain_ok])
+
+            # Monsoon season penalty -- planting in heavy rain is risky
+            monsoon_penalty = -5.0 if w.get("is_monsoon") and rain > 15 else 0.0
+
+            if checks == 3:
+                r_perf = 30.0 + monsoon_penalty
+                info["result"] = "Planted -- soil fully ready, excellent conditions"
+            elif checks == 2:
+                r_perf = 8.0 + monsoon_penalty
+                info["result"] = "Planted -- soil mostly ready"
+            elif checks == 1:
+                r_perf = -10.0
+                info["result"] = "Planted -- soil poorly prepared, high risk of failure"
             else:
-                battery = max(0, battery - np.random.randint(0, 2))
-                surplus = max(0, surplus - np.random.randint(0, 2))
-            price   = int(np.clip(price + np.random.randint(-1, 2), 0, 2))
-            surplus = min(bins[1]-1, max(0, surplus + np.random.randint(0, 3)))
-            battery = min(bins[2]-1, max(0, battery + np.random.randint(-1, 2)))
-            consumption = min(bins[3]-1, max(0, consumption + np.random.randint(-1, 2)))
-            raw = [price, surplus, battery, consumption]
+                r_perf = -25.0
+                info["result"] = "Planted -- soil completely unprepared"
 
-        return [int(np.clip(raw[i], 0, self.cfg["state_bins"][i]-1))
-                for i in range(len(raw))]
+            if monsoon_penalty < 0:
+                info["result"] += f" | Monsoon penalty ({monsoon_penalty:.0f})"
 
-    # ------------------------------------------------------------------
-    # Reward logic
-    # ------------------------------------------------------------------
-    def _compute_reward(self, action: int) -> float:
-        if self.task == "solar_scheduling":
-            solar, consumption, battery, time = self._raw_state
-            if action == 0:
-                reward = min(solar, consumption) * 2.0
-                if solar == 0:          reward -= 4.0
-                if solar > consumption: reward += (solar - consumption) * 0.5
-            elif action == 1:
-                if solar > 0 and battery < 9: reward = solar * 1.5 - (battery / 9) * 2.0
-                elif battery >= 9:             reward = -3.0
-                else:                          reward = -2.0
+            r_cost = 0.0
+            r_fair = 0.0
+            terminated = True
+            info["checks_passed"] = checks
+            info["ph_ok"]         = ph_ok
+            info["om_ok"]         = om_ok
+            info["drain_ok"]      = drain_ok
+
+        reward = r_perf + r_cost + r_fair
+        info["r_performance"] = r_perf
+        info["r_cost"]        = r_cost
+        info["r_fairness"]    = r_fair
+        return reward, terminated, info
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Task 2 — Irrigation (now uses REAL weather data from DB)
+    # ══════════════════════════════════════════════════════════════════════════
+    def _step_irrigation(self, action):
+        reservoir = self.state["water_reservoir"]
+        stress    = self.state["crop_stress"]
+        trend     = self.state["rainfall_trend"]
+        info      = {}
+
+        # Pull real weather for today
+        w         = self._current_weather()
+        real_rain = w.get("rain", 0.0)
+        real_temp = w.get("temp_mean", 28.0)
+        real_et0  = w.get("evapotranspiration", 5.0)
+        is_monsoon = w.get("is_monsoon", False)
+        source     = w.get("source", "synthetic")
+
+        info["weather"] = {
+            "rain_mm":   round(real_rain, 1),
+            "temp_c":    real_temp,
+            "et0_mm":    round(real_et0, 1),
+            "is_monsoon": is_monsoon,
+            "source":    source,
+        }
+
+        if action == "Irrigate Heavy":
+            use = 15
+            if reservoir >= use:
+                self.state["water_reservoir"] -= use
+                self.state["crop_stress"]      = max(0, stress - 20)
+                r_perf = 8.0 if stress > 40 else 2.0
+                r_cost = -4.0
+                # Penalise heavy irrigation during monsoon -- wasteful
+                if is_monsoon and real_rain > 10:
+                    r_cost -= 3.0
+                    info["monsoon_waste"] = True
+                info["result"] = "Heavy irrigation -- crop stress relieved"
             else:
-                if solar == 0 and battery == 0: reward = 2.0
-                elif solar > 0:                 reward = -3.0
-                else:                           reward = 0.5
-            return float(np.clip(reward, -10, 10))
+                r_perf, r_cost = -5.0, 0.0
+                info["result"] = "Insufficient reservoir for heavy irrigation"
 
-        elif self.task == "battery_management":
-            battery, solar, price, consumption = self._raw_state
-            if action == 0:
-                if solar > 3 and battery < 8:    reward = solar * 1.5 + (1 - price) * 2.0
-                elif price == 0 and battery < 8: reward = 2.0
-                elif battery >= 8:               reward = -3.0
-                else:                            reward = 0.5
-            elif action == 1:
-                if battery > 2 and price == 2:        reward = battery * 1.5 + consumption * 0.5
-                elif battery > 2 and consumption > 5: reward = battery * 1.0
-                elif battery <= 2:                    reward = -4.0
-                else:                                 reward = 0.0
+        elif action == "Irrigate Light":
+            use = 6
+            if reservoir >= use:
+                self.state["water_reservoir"] -= use
+                self.state["crop_stress"]      = max(0, stress - 8)
+                r_perf = 4.0 if stress > 20 else 1.0
+                r_cost = -1.5
+                info["result"] = "Light irrigation applied"
             else:
-                if solar >= consumption: reward = 2.0
-                elif price == 1:         reward = 1.0
-                else:                    reward = -1.0
-            return float(np.clip(reward, -10, 10))
+                r_perf, r_cost = -3.0, 0.0
+                info["result"] = "Insufficient reservoir for light irrigation"
 
-        elif self.task == "grid_interaction":
-            price, surplus, battery, consumption = self._raw_state
-            if action == 0:
-                if battery == 0 and surplus == 0: reward = 3.0 - price * 2.0
-                elif surplus > 0 or battery > 3:  reward = -3.0
-                else:                             reward = 1.0 - price * 1.5
-            elif action == 1:
-                if surplus > 3:    reward = surplus * 1.5 + price * 2.0
-                elif surplus == 0: reward = -4.0
-                else:              reward = surplus * 0.8
+        elif action == "Skip Irrigation":
+            r_cost = +2.0
+            if trend <= -1:   # drought conditions
+                self.state["crop_stress"] = min(100, stress + 15)
+                r_perf = -6.0
+                info["result"] = "Skipped during drought -- crop stress rising"
             else:
-                own = surplus + battery
-                if own >= consumption: reward = 4.0 + price * 1.0
-                elif own > 0:          reward = own * 0.5
-                else:                  reward = -2.0
-            return float(np.clip(reward, -10, 10))
+                self.state["crop_stress"] = min(100, stress + 3)
+                r_perf = 1.0
+                info["result"] = "Skipped -- conditions mild"
 
-        return 0.0
+        r_fair = 0.0
+
+        # ── REAL weather dynamics ─────────────────────────────────────────────
+        # Reservoir refills based on ACTUAL rainfall from DB
+        reservoir_gain = real_rain * 0.7   # 70% capture efficiency
+        self.state["water_reservoir"] = min(
+            100, self.state["water_reservoir"] + reservoir_gain
+        )
+
+        # Crop stress increases from heat (high ET0 means more plant stress)
+        heat_stress = max(0, real_et0 - 6.0) * 0.5   # extra stress above 6mm ET0
+        self.state["crop_stress"] = min(100, self.state["crop_stress"] + heat_stress)
+
+        # Update rainfall trend from REAL next day's data
+        next_w = self._weather_cache[min(self._weather_idx + 1,
+                                         len(self._weather_cache) - 1)]
+        self.state["rainfall_trend"] = float(
+            next_w.get("rainfall_trend", trend)
+        )
+
+        # Critical stress penalty
+        if self.state["crop_stress"] >= 90:
+            r_perf -= 10.0
+            info["critical_stress"] = True
+
+        reward = r_perf + r_cost + r_fair
+        info["r_performance"]  = r_perf
+        info["r_cost"]         = r_cost
+        info["r_fairness"]     = r_fair
+        info["reservoir_gain"] = round(reservoir_gain, 1)
+        info["heat_stress"]    = round(heat_stress, 2)
+        return reward, info
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Task 3 — Pest Control (unchanged -- pest dynamics are internal)
+    # ══════════════════════════════════════════════════════════════════════════
+    def _step_pest_control(self, action):
+        total     = self.state["total_resource"]
+        used      = self.state["resource_used"]
+        urgent    = self.state["urgent_outbreaks"]
+        plots     = self.state["plots_remaining"]
+        remaining = total - used
+        info      = {}
+
+        request = float(random.randint(40, 150))
+        info["request_size"] = request
+
+        if action == "Full Treatment":
+            if remaining >= request:
+                self.state["resource_used"] += request
+                if urgent > 0:
+                    r_perf, r_fair, r_cost = 15.0, 5.0, -3.0
+                    self.state["urgent_outbreaks"] = max(0, urgent - 1)
+                    info["result"] = f"Fully treated urgent outbreak (${request:.0f})"
+                else:
+                    r_perf, r_fair, r_cost = 6.0, 2.0, -1.0
+                    info["result"] = f"Fully treated plot (${request:.0f})"
+            else:
+                reward = -10.0
+                info["result"] = (f"Over budget -- need ${request:.0f}, "
+                                  f"have ${remaining:.0f}")
+                info["r_performance"] = info["r_cost"] = info["r_fairness"] = 0.0
+                return self._finalise_pest(reward, info)
+
+        elif action == "Partial Treatment":
+            ratio   = random.uniform(0.4, 0.7)
+            partial = request * ratio
+            if remaining >= partial:
+                self.state["resource_used"] += partial
+                if urgent > 0:
+                    r_perf, r_fair, r_cost = 5.0, -2.0, 3.0
+                    info["result"] = f"Partially treated urgent (${partial:.0f}/${request:.0f})"
+                else:
+                    r_perf, r_fair, r_cost = 4.0, 1.0, 5.0
+                    info["result"] = f"Smart partial treatment (${partial:.0f}/${request:.0f})"
+            else:
+                reward = -6.0
+                info["result"] = "Even partial exceeds remaining resources"
+                info["r_performance"] = info["r_cost"] = info["r_fairness"] = 0.0
+                return self._finalise_pest(reward, info)
+
+        elif action == "Defer":
+            if urgent > 0:
+                r_perf, r_fair, r_cost = -15.0, -8.0, 5.0
+                info["result"] = "Deferred URGENT outbreak -- crop damage risk"
+            elif plots <= 1:
+                r_perf, r_fair, r_cost = -8.0, -3.0, 3.0
+                info["result"] = "Deferred last plot -- poor planning"
+            else:
+                r_perf, r_fair, r_cost = -2.0, 0.0, 6.0
+                info["result"] = "Deferred non-urgent -- resources conserved"
+
+        reward = r_perf + r_fair + r_cost
+
+        if self.state["resource_used"] > total * 1.05:
+            reward -= 20.0
+            info["over_budget_penalty"] = True
+
+        if plots <= 1 and remaining > 0 and urgent == 0:
+            reward += 8.0
+            info["clean_finish_bonus"] = remaining
+
+        info["r_performance"] = r_perf
+        info["r_cost"]        = r_cost
+        info["r_fairness"]    = r_fair
+        return self._finalise_pest(reward, info)
+
+    def _finalise_pest(self, reward, info):
+        urgent = self.state["urgent_outbreaks"]
+        plots  = self.state["plots_remaining"]
+        new_u  = random.choices([0, 1, 2], weights=[60, 30, 10])[0]
+        self.state["urgent_outbreaks"] = min(10, urgent + new_u)
+        self.state["plots_remaining"]  = max(0, plots - 1)
+        info["remaining_resource"] = round(
+            self.state["total_resource"] - self.state["resource_used"], 1
+        )
+        info["urgent_remaining"] = self.state["urgent_outbreaks"]
+        info["plots_left"]       = self.state["plots_remaining"]
+        return reward, info
+
+    # ── Observation array ─────────────────────────────────────────────────────
+    def _obs(self):
+        if self.task == "soil_preparation":
+            return np.array([
+                self.state["soil_ph"],
+                self.state["organic_matter"],
+                self.state["drainage_quality"],
+                self.state["days_remaining"],
+            ], dtype=np.float32)
+        elif self.task == "irrigation":
+            return np.array([
+                self.state["water_reservoir"],
+                self.state["crop_stress"],
+                self.state["rainfall_trend"],
+                self.state["days_remaining"],
+            ], dtype=np.float32)
+        elif self.task == "pest_control":
+            return np.array([
+                self.state["total_resource"],
+                self.state["resource_used"],
+                self.state["urgent_outbreaks"],
+                self.state["plots_remaining"],
+            ], dtype=np.float32)
 
     def render(self):
-        mode = "REAL-DATA" if self._using_real_data else "RANDOM"
-        print(f"\n[Energy-{self.task.upper()} | {mode}] Step {self._step_count}")
-        for var, val in zip(self.cfg["state_vars"], self._raw_state):
-            print(f"  {var}: {val}")
+        w_info = ""
+        if self.use_real_weather and self._weather_cache:
+            w = self._current_weather()
+            w_info = (f" | rain={w.get('rain',0):.1f}mm "
+                      f"temp={w.get('temp_mean',28):.1f}°C "
+                      f"trend={w.get('rainfall_trend',0)}")
+        print(f"  [t={self.t:02d}] {self.task}{w_info} | {self.state}")
 
-    def get_state_info(self):
-        return dict(zip(self.cfg["state_vars"], self._raw_state))
+    def get_info(self):
+        return {
+            "domain":         "agriculture",
+            "task":           self.task,
+            "state_vars":     self.state_vars,
+            "actions":        self.actions,
+            "n_actions":      self.n_actions,
+            "shift_length":   self.SHIFT_LENGTH,
+            "weather_source": "real_db" if self.use_real_weather else "synthetic",
+        }
