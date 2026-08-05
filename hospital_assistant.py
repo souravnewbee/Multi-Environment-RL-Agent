@@ -22,6 +22,8 @@ import numpy as np
 from state_manager import get_task_state, merge_new_arrivals, apply_action_effect
 from policy_retriever import PolicyRetriever, build_query, TASK_SOURCE_MAP
 from llm_client import route_message, extract_state, explain_decision, explain_ungrounded
+from qtable_store import load_qtable as db_load_qtable
+from hospital_network import seed_demo_network, update_this_hospital_status, suggest_nearby_hospital, format_suggestion
 
 TASK_LABELS = {
     "bed_allocation":   "Bed Allocation",
@@ -79,11 +81,11 @@ def discretize(state, task):
 
 
 def load_qtable(task):
-    path = f"qtables/hospital_{task}.npy"
-    if not os.path.exists(path):
-        print(f"\n  Q-table not found at {path}. Run train_hospital.py first.\n")
+    try:
+        return db_load_qtable(f"hospital_{task}")
+    except FileNotFoundError:
+        print(f"\n  Q-table 'hospital_{task}' not found in qtables.db. Run train_hospital.py first.\n")
         return None
-    return np.load(path)
 
 
 def process_task(task, user_message, conversation_history, retriever, show_comparison=False):
@@ -123,6 +125,26 @@ def process_task(task, user_message, conversation_history, retriever, show_compa
     # Update live state
     apply_action_effect(task, action)
 
+    # ── Hospital Suggestion Network: if this hospital can't help, who can? ────
+    # Two triggers: bed_allocation Transfer/Reject, or er_queue backlog past
+    # the "resource strain" threshold (matches er_queue_policy.md's guidance
+    # that >5 waiting emergency patients is a strain event).
+    ER_QUEUE_STRAIN_THRESHOLD = 10
+    network_suggestion_line = None
+
+    if task == "bed_allocation":
+        update_this_hospital_status(free_beds=state["free_beds"])
+        if action in ("Transfer", "Reject"):
+            suggestion = suggest_nearby_hospital()
+            network_suggestion_line = format_suggestion(suggestion)
+
+    elif task == "er_queue":
+        if state.get("emergency_queue", 0) >= ER_QUEUE_STRAIN_THRESHOLD:
+            suggestion = suggest_nearby_hospital()
+            network_suggestion_line = format_suggestion(
+                suggestion, reason=f"ER overloaded ({state.get('emergency_queue', 0)} patients waiting)"
+            )
+
     # RAG retrieval — shown transparently
     query  = build_query(task, state, action)
     chunks = retriever.retrieve(query, top_k=2, source_filter=TASK_SOURCE_MAP[task])
@@ -136,6 +158,8 @@ def process_task(task, user_message, conversation_history, retriever, show_compa
 
     print(f"\n  ✅ Action      : {action}")
     print(f"  💬 Explanation : {explanation}")
+    if network_suggestion_line:
+        print(f"  🏥 {network_suggestion_line}")
 
     if show_comparison:
         ungrounded = explain_ungrounded(task, state, action, reason_hint)
@@ -162,6 +186,12 @@ def main():
     print(f"\n  Knowledge base loaded: {len(retriever.chunks)} policy chunks.")
     print("  Just describe what's happening in plain English. Type 'exit' to quit.")
     print("  Type 'compare' before a message to also see an ungrounded (no-RAG) explanation.\n")
+
+    # Seed the (demo/mock) hospital network so Transfer/Reject decisions
+    # can suggest a nearby hospital with real-time-simulated capacity.
+    initial_beds = get_task_state("bed_allocation")["free_beds"]
+    seed_demo_network(this_hospital_free_beds=initial_beds)
+    print("  Hospital network initialised (this hospital + 4 nearby demo hospitals).\n")
 
     conversation_history = []
     pending_task = None   # set when a clarification question is waiting on a reply

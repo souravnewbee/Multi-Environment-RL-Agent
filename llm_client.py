@@ -9,7 +9,7 @@ FIXED VERSION:
 - Scale context added so LLM never confuses price/battery levels
 """
 
-import os, json
+import os, json, re
 import requests
 from groq import Groq
 
@@ -312,14 +312,31 @@ Extract and output JSON only."""
 # =============================================================================
 # 3. EXPLAINER — FIXED: human friendly, no raw Q-values, correct scale words
 # =============================================================================
+def _trim_to_sentences(text: str, max_sentences: int = 2) -> str:
+    """
+    Hard-enforce a sentence limit. The LLM's own "2 sentences max" instruction
+    is a soft constraint — models sometimes ignore it — so this trims the
+    response down after the fact, rather than relying on the prompt alone.
+    """
+    text = text.strip()
+    # Split on '.', '!', or '?' followed by a space or end of string.
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    trimmed = " ".join(sentences[:max_sentences]).strip()
+    return trimmed if trimmed else text
+
+
 def explain_decision(task, state, action, reason_hint, policy_chunks):
     """
     Explains agent decision in plain human-friendly language.
     FIXED: No raw Q-values, correct scale descriptions, clear reasoning.
+    CHANGED: describe_state() and the system prompt were hardcoded for the
+    Energy domain only ("friendly energy advisor... home owner"), which
+    produced broken/irrelevant framing (e.g. grocery-store analogies) when
+    called for Hospital or Traffic decisions. Now domain-aware and generic.
     """
     policy_text = "\n\n".join(c["text"] for c in policy_chunks)
 
-    # Convert numeric state to human-friendly descriptions
+    # Convert numeric state to human-friendly descriptions, per domain
     def describe_state(task, state):
         desc = []
         if task == "solar_scheduling":
@@ -343,22 +360,49 @@ def explain_decision(task, state, action, reason_hint, policy_chunks):
             desc.append(f"solar surplus is {'none' if surp==0 else 'small' if surp<=3 else 'good' if surp<=6 else 'large'} ({surp}/9)")
             batt  = state.get("battery_level", 0)
             desc.append(f"battery is {'empty' if batt<=1 else 'low' if batt<=3 else 'medium' if batt<=6 else 'high'} ({batt}/9)")
-        return ", ".join(desc)
+
+        elif task == "bed_allocation":
+            desc.append(f"{state.get('free_beds', 0)} free beds")
+            desc.append(f"{state.get('waiting_patients', 0)} patients waiting")
+        elif task == "er_queue":
+            desc.append(f"{state.get('emergency_queue', 0)} emergency patients waiting")
+            desc.append(f"{state.get('normal_queue', 0)} normal patients waiting")
+        elif task == "staff_allocation":
+            desc.append(f"{state.get('available_doctors', 0)} doctors on duty")
+            desc.append(f"patient load of {state.get('patient_load', 0)}")
+
+        elif task == "intersection":
+            desc.append(f"{state.get('cars_NS', 0)} cars N/S (waited {state.get('wait_NS', 0)} steps)")
+            desc.append(f"{state.get('cars_EW', 0)} cars E/W (waited {state.get('wait_EW', 0)} steps)")
+        elif task == "pedestrian":
+            desc.append(f"{state.get('peds', 0)} pedestrians waiting ({state.get('ped_wait', 0)} steps)")
+            desc.append(f"{state.get('vehs', 0)} vehicles waiting ({state.get('veh_wait', 0)} steps)")
+        elif task == "parking":
+            desc.append(f"{state.get('spots', 0)} spots available")
+            desc.append(f"queue waiting {state.get('queue_wait', 0)} steps")
+
+        return ", ".join(desc) if desc else str(state)
 
     friendly_state = describe_state(task, state)
+    energy_tasks = {"solar_scheduling", "battery_management", "grid_interaction"}
+    scale_block  = SCALE_CONTEXT if task in energy_tasks else ""
 
-    system_prompt = f"""You are a friendly energy advisor explaining a smart home decision.
-Write a SHORT clear explanation (2-3 sentences MAX) for a regular home owner.
+    energy_rules = """- NEVER say "relatively low" for grid_price=2 — price 2 is EXPENSIVE, always say so!
+- NEVER say battery level 5 is "low" — 5/9 is MEDIUM.
+""" if task in energy_tasks else ""
 
-{SCALE_CONTEXT}
+    system_prompt = f"""You are a clear, concise decision-explainer for the UMORDA system.
+Explain the automated decision below in plain, direct language for a non-technical person.
+
+{scale_block}
 
 STRICT RULES:
-- NEVER mention Q-table values or numbers like "79.593" — these mean nothing to users.
-- NEVER say "relatively low" for grid_price=2 — price 2 is EXPENSIVE, always say so!
-- NEVER say battery level 5 is "low" — 5/9 is MEDIUM.
-- Use simple everyday language — imagine explaining to your neighbor.
-- Focus on WHY the decision makes sense in real life.
-- Keep it under 3 sentences.
+- NEVER mention Q-table values or raw numbers like "79.593" — these mean nothing to users.
+{energy_rules}- State the situation and the decision DIRECTLY. Do NOT use analogies, metaphors,
+  or comparisons to unrelated scenarios (e.g. do NOT compare a hospital ER to a
+  grocery store, or anything similar). Say what is actually happening.
+- Use simple everyday language, but stay on-topic and factual.
+- Keep it to 2 sentences MAXIMUM. Shorter is better.
 """
 
     user_prompt = f"""Situation: {friendly_state}
@@ -368,25 +412,28 @@ Internal reason: {reason_hint}
 Policy context:
 {policy_text}
 
-Explain this decision simply to a home owner. No Q-values. No technical jargon."""
+Explain this decision in plain language, 2 sentences max, no analogies, no Q-values."""
 
-    return _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=200)
+    raw = _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=120)
+    return _trim_to_sentences(raw, max_sentences=2)
 
 
 # =============================================================================
 # 4. EXPLAINER WITHOUT POLICY (for comparison)
 # =============================================================================
 def explain_ungrounded(task, state, action, reason_hint):
-    system_prompt = """You are a friendly energy advisor. Explain a smart home 
-energy decision in 2-3 simple sentences. No Q-values. No technical terms."""
+    system_prompt = """You are a clear, concise decision-explainer. Explain the automated
+decision in 2 simple sentences MAX. No Q-values. No technical terms. No analogies
+or comparisons to unrelated scenarios — describe what is actually happening."""
 
     user_prompt = f"""Task: {task}
 Situation: {json.dumps(state)}
 Decision: {action}
 
-Explain simply to a home owner."""
+Explain simply and directly, 2 sentences max."""
 
-    return _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=200)
+    raw = _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=120)
+    return _trim_to_sentences(raw, max_sentences=2)
 
 
 # =============================================================================
