@@ -1,9 +1,20 @@
-
-
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import random
+import os
+import sys
+from datetime import date, timedelta
+
+# ── Try importing the real Bangladesh weather DB (optional) ──────────────────
+# Falls back to pure simulation if the DB doesn't exist yet or has no rows.
+# Populate it first with:  python data/weather_fetcher.py
+try:
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from data.weather_fetcher import WeatherFetcher
+    _WEATHER_AVAILABLE = True
+except ImportError:
+    _WEATHER_AVAILABLE = False
 
 
 class AgricultureEnv(gym.Env):
@@ -17,6 +28,24 @@ class AgricultureEnv(gym.Env):
         self.render_mode = render_mode
         self.state = None
         self.t = 0
+
+        # ── Load real Bangladesh weather history for irrigation, if available ──
+        self._weather_rows = None
+        self._weather_idx = 0
+        if task == "irrigation" and _WEATHER_AVAILABLE:
+            try:
+                fetcher = WeatherFetcher()
+                if fetcher.total_records() > 0:
+                    end = date.today()
+                    start = end - timedelta(days=365)
+                    rows = fetcher.get_date_range(start, end)
+                    # keep only rows with a usable rainfall_trend value
+                    rows = [r for r in rows if r.get("rainfall_trend") is not None]
+                    if len(rows) >= self.SHIFT_LENGTH:
+                        self._weather_rows = rows
+            except Exception:
+                self._weather_rows = None  # any DB/network hiccup -> fall back to simulation
+
 
         if self.task == "soil_preparation":
             # Preparing soil for a unique/exotic fruit crop (targets below are
@@ -73,12 +102,25 @@ class AgricultureEnv(gym.Env):
             }
 
         elif self.task == "irrigation":
-            self.state = {
-                "water_reservoir": float(random.randint(40, 100)),
-                "crop_stress":     float(random.randint(0, 30)),
-                "rainfall_trend":  float(random.choice([-2, -1, 0, 1, 2])),
-                "days_remaining":  float(self.SHIFT_LENGTH),
-            }
+            if self._weather_rows:
+                # Pick a random real starting point in the last year of Bangladesh
+                # weather, leaving room for a full season ahead of it.
+                start = random.randint(0, len(self._weather_rows) - self.SHIFT_LENGTH)
+                self._weather_idx = start
+                real_trend = self._weather_rows[start]["rainfall_trend"]
+                self.state = {
+                    "water_reservoir": float(random.randint(40, 100)),
+                    "crop_stress":     float(random.randint(0, 30)),
+                    "rainfall_trend":  float(np.clip(real_trend, -2, 2)),
+                    "days_remaining":  float(self.SHIFT_LENGTH),
+                }
+            else:
+                self.state = {
+                    "water_reservoir": float(random.randint(40, 100)),
+                    "crop_stress":     float(random.randint(0, 30)),
+                    "rainfall_trend":  float(random.choice([-2, -1, 0, 1, 2])),
+                    "days_remaining":  float(self.SHIFT_LENGTH),
+                }
 
         elif self.task == "pest_control":
             self.state = {
@@ -241,8 +283,14 @@ class AgricultureEnv(gym.Env):
 
         r_fair = 0.0  # single field, not deeply applicable -- kept neutral (same as FinanceEnv trading)
 
-        # World dynamics: rainfall trend drifts, reservoir refills with rain
-        new_trend = int(np.clip(trend + random.choice([-1, 0, 0, 0, 1]), -2, 2))
+        # World dynamics: rainfall trend advances, reservoir refills with rain.
+        # Uses real Bangladesh weather history when available, else drifts randomly.
+        if self._weather_rows:
+            self._weather_idx = min(self._weather_idx + 1, len(self._weather_rows) - 1)
+            real_trend = self._weather_rows[self._weather_idx]["rainfall_trend"]
+            new_trend = int(np.clip(real_trend, -2, 2))
+        else:
+            new_trend = int(np.clip(trend + random.choice([-1, 0, 0, 0, 1]), -2, 2))
         rainfall_gain = {-2: 0, -1: 2, 0: 6, 1: 12, 2: 20}[new_trend]
         self.state["rainfall_trend"]  = new_trend
         self.state["water_reservoir"] = min(100, self.state["water_reservoir"] + rainfall_gain)
