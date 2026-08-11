@@ -4,10 +4,13 @@ training/train_finance.py
 Trains Q-learning agents for all 3 Finance tasks.
 Matches the exact structure of train_hospital.py.
 
+CHANGED: the Q-table itself is now saved via qtable_store.py (SQLite) into
+qtables/qtables.db instead of a standalone .npy file. Metadata JSON, plots,
+and the combined summary JSON are unchanged — they're small/human-readable
+and don't need to live in the DB.
+
 Saves:
-    qtables/finance_trading.npy
-    qtables/finance_savings.npy
-    qtables/finance_budget.npy
+    qtables/qtables.db          (Q-tables: finance_trading, finance_savings, finance_budget)
     qtables/finance_trading_metadata.json
     qtables/finance_savings_metadata.json
     qtables/finance_budget_metadata.json
@@ -28,6 +31,7 @@ import matplotlib.pyplot as plt
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from environments.finance_env import FinanceEnv
+from qtable_store import save_qtable
 
 # ── Hyperparameters (match train_hospital.py exactly) ─────────────────────────
 EPISODES      = 50_000
@@ -196,15 +200,15 @@ def train_task(task):
     return Q, rewards, trained_mean, random_mean, improvement, total_time
 
 
-# ── Save Q-table + metadata JSON ──────────────────────────────────────────────
+# ── Save Q-table (DB) + metadata JSON (file) ──────────────────────────────────
 def save_results(task, Q, rewards, trained, baseline, improvement, elapsed):
     os.makedirs("qtables", exist_ok=True)
     os.makedirs("training/plots", exist_ok=True)
 
-    # Save Q-table
-    q_path = f"qtables/finance_{task}.npy"
-    np.save(q_path, Q)
-    print(f"\n  Saved Q-table  → {q_path}")
+    # CHANGED: was np.save(f"qtables/finance_{task}.npy", Q)
+    # now saves into qtables/qtables.db under the name "finance_{task}"
+    save_qtable(f"finance_{task}", Q)
+    print(f"\n  Saved Q-table  → qtables.db (as 'finance_{task}')")
 
     # Save metadata JSON (matches hospital format)
     env       = FinanceEnv(task=task) if task != "trading" else FinanceEnv(task=task, ticker="AAPL")

@@ -1,9 +1,15 @@
 # =============================================================================
 # UMORDA — Traffic Domain Q-Learning Agent (FIXED VERSION v2)
 # File: agents/traffic_agent.py
+#
+# CHANGED: save_qtable()/load_qtable() now go through qtable_store.py
+# (SQLite) instead of raw np.save/np.load. Callers now pass a NAME
+# (e.g. "traffic_intersection") instead of a file path.
 # =============================================================================
 
 import numpy as np
+
+from qtable_store import save_qtable as _db_save_qtable, load_qtable as _db_load_qtable
 
 
 class TrafficAgent:
@@ -59,13 +65,17 @@ class TrafficAgent:
     def best_action(self, state: int) -> int:
         return int(np.argmax(self.q_table[state]))
 
-    def save_qtable(self, path: str):
-        np.save(path, self.q_table)
-        print(f"  [✓] Q-Table saved → {path}")
+    def save_qtable(self, name: str):
+        """
+        `name` should be a DB key like 'traffic_intersection'
+        (previously this was a file path like 'qtables/traffic_x_qtable.npy').
+        """
+        _db_save_qtable(name, self.q_table)
+        print(f"  [✓] Q-Table saved → qtables.db (as '{name}')")
 
-    def load_qtable(self, path: str):
-        self.q_table = np.load(path)
-        print(f"  [✓] Q-Table loaded ← {path}")
+    def load_qtable(self, name: str):
+        self.q_table = _db_load_qtable(name)
+        print(f"  [✓] Q-Table loaded ← qtables.db (as '{name}')")
 
     def print_qtable(self, action_meanings: list, max_rows: int = 20, title: str = "Q-TABLE"):
         print(f"\n{'='*65}")

@@ -5,11 +5,15 @@ Q-Learning agent for the Finance domain.
 Matches the exact structure of agents/hospital_agent.py.
 
 Responsibilities:
-  - Load trained Q-tables from qtables/
+  - Load trained Q-tables from qtables/qtables.db (via qtable_store.py)
   - Discretise raw state dicts into Q-table indices
   - Select optimal actions via argmax (greedy policy)
   - Return Q-values for all actions (used by explainer.py)
   - Expose metadata about each task
+
+CHANGED: Q-table loading now goes through qtable_store.py (SQLite) instead
+of np.load on a standalone .npy file. Metadata JSON files are unchanged —
+they're small and human-readable, no need to move those into the DB.
 
 Usage:
     from agents.finance_agent import FinanceAgent
@@ -21,6 +25,8 @@ Usage:
 import os
 import json
 import numpy as np
+
+from qtable_store import load_qtable
 
 
 # ── Task configuration ────────────────────────────────────────────────────────
@@ -77,15 +83,15 @@ class FinanceAgent:
         self.Q        = self._load_qtable()
         self.metadata = self._load_metadata()
 
-    # ── Q-table loading ───────────────────────────────────────────────────────
+    # ── Q-table loading (CHANGED: SQLite via qtable_store.py) ────────────────
     def _load_qtable(self) -> np.ndarray:
-        path = os.path.join(self.QTABLE_DIR, f"finance_{self.task}.npy")
-        if not os.path.exists(path):
+        try:
+            Q = load_qtable(f"finance_{self.task}")
+        except FileNotFoundError:
             raise FileNotFoundError(
-                f"Q-table not found at '{path}'.\n"
+                f"Q-table 'finance_{self.task}' not found in qtables/qtables.db.\n"
                 f"Run:  python training/train_finance.py  first."
             )
-        Q = np.load(path)
         assert Q.shape == self.config["q_shape"], (
             f"Q-table shape mismatch. "
             f"Expected {self.config['q_shape']}, got {Q.shape}."
@@ -292,8 +298,6 @@ def load_finance_agent(task: str) -> FinanceAgent:
 
 # ── Quick self-test ───────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    import sys
-
     print("\n" + "="*55)
     print("  FinanceAgent — Self Test")
     print("="*55)
