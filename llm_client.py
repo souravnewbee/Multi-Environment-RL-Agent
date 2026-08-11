@@ -156,6 +156,46 @@ TASK_FIELD_SPECS = {
         "battery_level":    "current battery charge (integer, 0-9). 0=empty, 9=full, 5=medium",
         "home_consumption": "current home usage (integer, 0-9)",
     },
+
+    # FINANCE (Niloy)
+    "trading": {
+        "price_trend":     "market price direction (integer, -2 to +2). -2=crashing, -1=falling, 0=stable, 1=rising, 2=surging",
+        "shares_held":      "number of shares currently held (integer)",
+        "cash":             "cash available to spend (float)",
+        "portfolio_value":  "total value of holdings + cash (float)",
+    },
+    "savings": {
+        "monthly_income":    "income received per month (float)",
+        "current_savings":   "amount currently saved (float)",
+        "expenses":          "monthly expenses (float)",
+        "months_remaining":  "months left in the planning horizon (integer)",
+    },
+    "budget": {
+        "total_budget":          "total budget allocated (float)",
+        "amount_spent":          "amount already spent (float)",
+        "urgent_requests":       "number of urgent/pending spending requests (integer)",
+        "departments_remaining": "departments still needing allocation (integer)",
+    },
+
+    # AGRICULTURE (Niloy)
+    "soil_preparation": {
+        "soil_ph":          "soil pH level (float, 3.0-9.0). below 5.5=too acidic, 6.0-7.0=ideal, above 7.5=too alkaline",
+        "organic_matter":   "organic matter content (integer, 0-100). higher is better for fertility",
+        "drainage_quality": "drainage quality (integer, 0-100). higher = better drained soil",
+        "days_remaining":   "days remaining before planting deadline (integer)",
+    },
+    "irrigation": {
+        "water_reservoir": "water reservoir level (integer, 0-100). 0=empty, 100=full",
+        "crop_stress":     "crop water stress level (integer, 0-100). higher = more stressed/needs water",
+        "rainfall_trend":  "rainfall direction (integer, -2 to +2). -2=drought worsening, 0=steady, 2=heavy rain expected",
+        "days_remaining":  "days remaining in the growing period (integer)",
+    },
+    "pest_control": {
+        "total_resource":   "total pest-control resource budget available (float)",
+        "resource_used":    "resource already used (float)",
+        "urgent_outbreaks": "number of urgent pest outbreaks needing action (integer)",
+        "plots_remaining":  "plots not yet treated (integer)",
+    },
 }
 
 TASK_DESCRIPTIONS = {
@@ -171,6 +211,14 @@ TASK_DESCRIPTIONS = {
     "solar_scheduling":   "deciding how to use solar power being generated right now (use directly, store in battery, or buy from grid)",
     "battery_management": "deciding when to charge, discharge, or keep battery idle",
     "grid_interaction":   "deciding when to buy from grid, sell surplus solar to grid, or stay self-sufficient",
+    # FINANCE
+    "trading": "buy/sell/hold decisions on a market asset",
+    "savings": "deciding how much to save vs spend given income and expenses",
+    "budget":  "allocating a limited budget across departments and urgent requests",
+    # AGRICULTURE
+    "soil_preparation": "deciding soil amendment actions before planting (pH, organic matter, drainage)",
+    "irrigation":        "deciding when and how much to irrigate crops based on water levels and stress",
+    "pest_control":       "allocating pest-control resources across plots and outbreaks",
 }
 
 # Keywords that strongly suggest each energy task
@@ -256,16 +304,10 @@ def extract_state(task, user_message, known_state, conversation_history=None):
             f"{m['role']}: {m['content']}" for m in conversation_history[-4:]
         )
 
-    system_prompt = f"""You are a precise data extractor for UMORDA energy management.
-Task: {task} — {TASK_DESCRIPTIONS.get(task, '')}
+    energy_tasks = {"solar_scheduling", "battery_management", "grid_interaction"}
+    scale_block  = SCALE_CONTEXT if task in energy_tasks else ""
 
-{SCALE_CONTEXT}
-
-Fields to extract:
-{field_desc}
-
-CRITICAL EXTRACTION RULES:
-1. Rain / cloudy / overcast / no sun / night → solar_output = 0, solar_surplus = 0
+    energy_rules = """1. Rain / cloudy / overcast / no sun / night → solar_output = 0, solar_surplus = 0
 2. "High price" / "expensive grid" / "costly grid" → grid_price = 2
 3. "Cheap grid" / "low price" → grid_price = 0
 4. "Some charge" / "some battery" → battery_level = 5 (medium)
@@ -273,7 +315,39 @@ CRITICAL EXTRACTION RULES:
 6. "Full battery" → battery_level = 9
 7. "A lot of solar" / "panels working well" → solar_output = 7
 8. "Weak solar" / "little sun" → solar_output = 2
-9. Only update fields the message mentions. Keep others from known state.
+""" if task in energy_tasks else ""
+
+    finance_rules = """1. "Market crashing" / "prices falling" / "prices dropping" → price_trend = -2
+2. "Prices down slightly" / "slipping" → price_trend = -1
+3. "Market stable" / "flat" → price_trend = 0
+4. "Prices up" / "rising" → price_trend = 1
+5. "Market surging" / "prices soaring" → price_trend = 2
+6. "Low on cash" / "tight budget" phrases should lower cash/current_savings, not price_trend.
+7. "Urgent request" / "emergency spending" → increase urgent_requests, not other fields.
+""" if task in {"trading", "savings", "budget"} else ""
+
+    agriculture_rules = """1. "Soil is too acidic" / "pH is low" → soil_ph below 5.5
+2. "Soil is alkaline" / "pH is high" → soil_ph above 7.5
+3. "Heavy rain expected" / "lots of rain coming" → rainfall_trend = 2
+4. "Drought" / "no rain" / "dry spell" → rainfall_trend = -2
+5. "Reservoir is low" / "water is scarce" → water_reservoir low (e.g. 10-20)
+6. "Reservoir is full" / "plenty of water" → water_reservoir high (e.g. 80-100)
+7. "Crops stressed" / "wilting" → crop_stress high (e.g. 70-90)
+8. "Pest outbreak" / "infestation" → increase urgent_outbreaks
+""" if task in {"soil_preparation", "irrigation", "pest_control"} else ""
+
+    domain_rules = energy_rules + finance_rules + agriculture_rules
+
+    system_prompt = f"""You are a precise data extractor for UMORDA.
+Task: {task} — {TASK_DESCRIPTIONS.get(task, '')}
+
+{scale_block}
+
+Fields to extract:
+{field_desc}
+
+CRITICAL EXTRACTION RULES:
+{domain_rules}9. Only update fields the message mentions. Keep others from known state.
 10. If value is impossible → needs_clarification = true.
 
 Output ONLY this JSON:
