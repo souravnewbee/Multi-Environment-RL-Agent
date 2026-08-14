@@ -1,4 +1,4 @@
- """
+"""
 UMORDA — Agriculture Q-Learning Agent (Gymnasium-compatible)
 Pure Q-learning agent with epsilon-greedy exploration, convergence tracking,
 and discretization bins matched to the REAL caps used inside agriculture_env.py.
