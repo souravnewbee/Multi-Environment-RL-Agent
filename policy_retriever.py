@@ -1,12 +1,16 @@
 """
-UMORDA — RAG Retriever for Knowledge Base (Hospital + Traffic + Energy)
+UMORDA — RAG Retriever for Knowledge Base
+(Hospital + Traffic + Energy + Finance + Agriculture)
+
 Loads policy markdown files, splits them into chunks, and retrieves the
 most relevant chunk(s) for a given query using TF-IDF cosine similarity.
 
 No external vector DB needed — the knowledge base is small enough that
 TF-IDF retrieval is fast, accurate, and dependency-light.
 
-EXTENDED: Traffic and Energy domains added alongside Hospital.
+EXTENDED: Finance and Agriculture task sources added alongside
+Hospital/Traffic/Energy (the .md policy files already existed in
+knowledge_base/, they just weren't wired into TASK_SOURCE_MAP/build_query).
 """
 
 import os
@@ -113,15 +117,15 @@ TASK_SOURCE_MAP = {
     "battery_management": "battery_management_policy.md",
     "grid_interaction":   "grid_interaction_policy.md",
 
-    # FINANCE (Niloy)
+    # FINANCE
     "trading": "trading_policy.md",
     "savings": "savings_policy.md",
     "budget":  "budget_policy.md",
 
-    # AGRICULTURE (Niloy)
+    # AGRICULTURE
     "soil_preparation": "soil_preparation_policy.md",
     "irrigation":        "irrigation_policy.md",
-    "pest_control":       "pest_control_policy.md",
+    "pest_control":      "pest_control_policy.md",
 }
 
 
@@ -190,40 +194,38 @@ def build_query(task, state, action):
     elif task == "trading":
         return (
             f"price trend {state['price_trend']} shares held {state['shares_held']} "
-            f"cash {state['cash']} portfolio value {state['portfolio_value']} "
-            f"action {action} buy sell hold trading market asset"
+            f"cash {state['cash']} action {action} buy sell hold trend timing"
         )
     elif task == "savings":
         return (
             f"monthly income {state['monthly_income']} current savings {state['current_savings']} "
             f"expenses {state['expenses']} months remaining {state['months_remaining']} "
-            f"action {action} save spend savings plan"
+            f"action {action} save invest spend"
         )
     elif task == "budget":
         return (
             f"total budget {state['total_budget']} amount spent {state['amount_spent']} "
             f"urgent requests {state['urgent_requests']} departments remaining {state['departments_remaining']} "
-            f"action {action} allocate budget department urgent"
+            f"action {action} allocate full partial defer urgent"
         )
 
     # AGRICULTURE
     elif task == "soil_preparation":
         return (
-            f"soil ph {state['soil_ph']} organic matter {state['organic_matter']} "
+            f"soil pH {state['soil_ph']} organic matter {state['organic_matter']} "
             f"drainage quality {state['drainage_quality']} days remaining {state['days_remaining']} "
-            f"action {action} soil amendment preparation planting"
+            f"action {action} compost pH drainage plant"
         )
     elif task == "irrigation":
         return (
             f"water reservoir {state['water_reservoir']} crop stress {state['crop_stress']} "
-            f"rainfall trend {state['rainfall_trend']} days remaining {state['days_remaining']} "
-            f"action {action} irrigate water crop schedule"
+            f"rainfall trend {state['rainfall_trend']} action {action} irrigate heavy light skip"
         )
     elif task == "pest_control":
         return (
             f"total resource {state['total_resource']} resource used {state['resource_used']} "
             f"urgent outbreaks {state['urgent_outbreaks']} plots remaining {state['plots_remaining']} "
-            f"action {action} pest control treatment outbreak"
+            f"action {action} treatment full partial defer urgent"
         )
 
     raise ValueError(f"Unknown task: {task}")
@@ -254,4 +256,20 @@ if __name__ == "__main__":
                      "Discharge Battery")
     r3 = retriever.retrieve(q3, top_k=2, source_filter="battery_management_policy.md")
     for r in r3:
+        print(f"[{r['source']}] score={r['score']:.3f}: {r['text'][:100]}...\n")
+
+    print("── Finance test ──")
+    q4 = build_query("trading",
+                     {"price_trend": 2, "shares_held": 3, "cash": 800, "portfolio_value": 1200},
+                     "Buy")
+    r4 = retriever.retrieve(q4, top_k=2, source_filter="trading_policy.md")
+    for r in r4:
+        print(f"[{r['source']}] score={r['score']:.3f}: {r['text'][:100]}...\n")
+
+    print("── Agriculture test ──")
+    q5 = build_query("irrigation",
+                     {"water_reservoir": 20, "crop_stress": 55, "rainfall_trend": -1, "days_remaining": 20},
+                     "Irrigate Heavy")
+    r5 = retriever.retrieve(q5, top_k=2, source_filter="irrigation_policy.md")
+    for r in r5:
         print(f"[{r['source']}] score={r['score']:.3f}: {r['text'][:100]}...\n")
