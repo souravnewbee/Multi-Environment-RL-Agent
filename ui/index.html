@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UMORDA — Unified Multi-Domain RL Agent</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">UMORDA</span>
+    <span class="brand-sub">Unified Multi-Objective RL Decision Agent</span>
+  </div>
+  <div class="status" id="apiStatus">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">checking backend…</span>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- LEFT: query + pipeline + result -->
+  <section class="panel main-panel">
+
+    <div class="query-block">
+      <label for="queryInput">Query</label>
+      <textarea id="queryInput" rows="3" placeholder="e.g. Should I rebalance my portfolio given current AAPL volatility?"></textarea>
+
+      <div class="query-row">
+        <div class="domain-select">
+          <label for="domainSelect">Domain</label>
+          <select id="domainSelect">
+            <option value="">Auto-route</option>
+          </select>
+        </div>
+        <button id="runBtn" class="run-btn">Run Query</button>
+      </div>
+    </div>
+
+    <div class="pipeline" id="pipeline">
+      <div class="stage" data-stage="route">
+        <div class="stage-num">1</div>
+        <div class="stage-label">Route</div>
+      </div>
+      <div class="stage-line"></div>
+      <div class="stage" data-stage="extract">
+        <div class="stage-num">2</div>
+        <div class="stage-label">Extract</div>
+      </div>
+      <div class="stage-line"></div>
+      <div class="stage" data-stage="decide">
+        <div class="stage-num">3</div>
+        <div class="stage-label">Decide</div>
+      </div>
+      <div class="stage-line"></div>
+      <div class="stage" data-stage="explain">
+        <div class="stage-num">4</div>
+        <div class="stage-label">Explain</div>
+      </div>
+    </div>
+
+    <div id="resultArea" class="result-area empty">
+      <p class="empty-msg">Run a query to see the pipeline output.</p>
+    </div>
+
+  </section>
+
+  <!-- RIGHT: history -->
+  <aside class="panel history-panel">
+    <h2>History</h2>
+    <ul id="historyList" class="history-list">
+      <li class="history-empty">No queries yet.</li>
+    </ul>
+  </aside>
+
+</main>
+
+<footer class="footer">
+  UMORDA Capstone — Advisor: Dr. Riasat Khan · Domains: Hospital, Traffic, Energy, Finance, Agriculture
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
