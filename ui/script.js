@@ -79,7 +79,15 @@ async function runQuery() {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: "Request failed" }));
-      throw new Error(err.detail || "Request failed");
+      const detail = err.detail || "Request failed";
+      // 422 = the pipeline is working correctly, it just needs more detail
+      // from you — render that as a clarifying question, not a hard error.
+      if (res.status === 422) {
+        renderClarification(detail);
+        loadHistory();
+        return;
+      }
+      throw new Error(detail);
     }
 
     const data = await res.json();
@@ -114,6 +122,19 @@ function animateStage(name, delay) {
 }
 
 // ---------- render ----------
+function renderClarification(question) {
+  resultArea.classList.remove("empty");
+  resultArea.innerHTML = `
+    <div class="clarify-box">
+      <span class="clarify-icon">🤔</span>
+      <div>
+        <div class="clarify-title">Need a bit more detail</div>
+        <p class="clarify-question">${escapeHtml(question)}</p>
+        <p class="clarify-hint">Type your answer in the box above and run the query again — the conversation continues from here.</p>
+      </div>
+    </div>`;
+}
+
 function renderResult(data) {
   resultArea.classList.remove("empty");
 
@@ -130,6 +151,15 @@ function renderResult(data) {
           <span>${q.q_value.toFixed(2)}</span>
         </div>`;
     })
+    .join("");
+
+  // Explanation may contain \n\n-separated parts (main explanation, network
+  // suggestion, live state-diff line) — render each as its own paragraph
+  // instead of one run-on block.
+  const explainParts = (data.explain || "")
+    .split("\n\n")
+    .filter(Boolean)
+    .map((p) => `<p>${escapeHtml(p)}</p>`)
     .join("");
 
   resultArea.innerHTML = `
@@ -158,11 +188,65 @@ function renderResult(data) {
       ${qRows}
     </div>
 
+    ${renderStateTable(data.extract)}
+
     <div class="explanation">
       <h3>Explanation</h3>
-      <p>${escapeHtml(data.explain)}</p>
+      ${explainParts}
     </div>
   `;
+}
+
+// Renders the live state as a before -> after table when the backend
+// actually applied an effect (hospital tasks with state_manager.py wired
+// in). Falls back to a single-column "current state" table otherwise, so
+// every domain still gets to show what values were used for the decision.
+function renderStateTable(extract) {
+  const state = extract.state || {};
+  const after = extract.state_after_action;
+  const hasChange = after && Object.keys(state).some(
+    (k) => k !== "last_updated" && state[k] !== after[k]
+  );
+
+  const keys = Object.keys(state).filter((k) => k !== "last_updated");
+  if (keys.length === 0) return "";
+
+  const rows = keys
+    .map((k) => {
+      const label = escapeHtml(k.replace(/_/g, " "));
+      if (hasChange) {
+        const before = state[k];
+        const now = after[k];
+        const changed = before !== now;
+        return `
+          <tr class="${changed ? "state-row-changed" : ""}">
+            <td class="state-key">${label}</td>
+            <td class="state-val">${escapeHtml(String(before))}</td>
+            <td class="state-arrow">→</td>
+            <td class="state-val ${changed ? "state-val-new" : ""}">${escapeHtml(String(now))}</td>
+          </tr>`;
+      }
+      return `
+        <tr>
+          <td class="state-key">${label}</td>
+          <td class="state-val" colspan="3">${escapeHtml(String(state[k]))}</td>
+        </tr>`;
+    })
+    .join("");
+
+  const header = hasChange
+    ? `<tr><th>Field</th><th>Before</th><th></th><th>After this decision</th></tr>`
+    : `<tr><th>Field</th><th colspan="3">Current value</th></tr>`;
+
+  return `
+    <div class="state-table-block">
+      <h3>${hasChange ? "Live State — Before → After" : "State Used For This Decision"}</h3>
+      <table class="state-table">
+        <thead>${header}</thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${extract.notes ? `<p class="state-notes">${escapeHtml(extract.notes)}</p>` : ""}
+    </div>`;
 }
 
 function renderHistory(items) {

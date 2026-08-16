@@ -9,7 +9,9 @@
   --accent: #3453d1;
   --accent-soft: #eaedfb;
   --good: #1f8a5f;
+  --good-soft: #e6f4ee;
   --warn: #b5651d;
+  --warn-soft: #fbf2e8;
   --radius: 6px;
   --mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
   --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -243,7 +245,7 @@ textarea:focus, select:focus, button:focus {
 .qvalues {
   margin-bottom: 18px;
 }
-.qvalues h3, .explanation h3 {
+.qvalues h3, .explanation h3, .state-table-block h3 {
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -278,7 +280,81 @@ textarea:focus, select:focus, button:focus {
   background: var(--accent-soft);
   border-radius: var(--radius);
   padding: 14px 16px;
+  margin: 0 0 8px;
+}
+.explanation p:last-child { margin-bottom: 0; }
+
+/* ---------- live state table (before -> after) ---------- */
+.state-table-block {
+  margin-bottom: 18px;
+}
+.state-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.state-table th {
+  text-align: left;
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  background: #fafafa;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.state-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.state-table tr:last-child td { border-bottom: none; }
+.state-key {
+  font-family: var(--sans);
+  color: var(--ink-soft);
+  text-transform: capitalize;
+}
+.state-val { color: var(--ink); }
+.state-arrow { color: var(--ink-soft); text-align: center; width: 20px; }
+.state-row-changed { background: var(--good-soft); }
+.state-val-new { color: var(--good); font-weight: 600; }
+.state-notes {
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  margin: 8px 2px 0;
+  font-style: italic;
+}
+
+/* ---------- clarification box ---------- */
+.clarify-box {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: var(--warn-soft);
+  border: 1px solid #ecd8b8;
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+.clarify-icon { font-size: 1.4rem; line-height: 1; }
+.clarify-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 6px;
+  color: var(--warn);
+}
+.clarify-question {
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+  color: var(--ink);
+}
+.clarify-hint {
   margin: 0;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
 }
 
 /* ---------- history ---------- */

@@ -74,6 +74,27 @@ try:
 except ImportError:
     HAS_AGRICULTURE_AGENT = False
 
+try:
+    from hospital_network import (
+        seed_demo_network, update_this_hospital_status,
+        suggest_nearby_hospital, format_suggestion,
+    )
+    HAS_HOSPITAL_NETWORK = True
+except ImportError:
+    HAS_HOSPITAL_NETWORK = False
+
+try:
+    from state_manager import get_task_state, apply_action_effect, merge_new_arrivals
+    HAS_STATE_MANAGER = True
+except (ImportError, FileNotFoundError):
+    HAS_STATE_MANAGER = False
+
+HOSPITAL_TASKS = {"bed_allocation", "er_queue", "staff_allocation"}
+
+# Matches er_queue_policy.md's guidance that >5 waiting emergency patients
+# is a "resource strain event" — used to trigger a network suggestion.
+ER_QUEUE_STRAIN_THRESHOLD = 10
+
 
 # =============================================================================
 # Domain / task registry — mirrors main.py's TASK_DOMAIN + DEFAULT_STATE
@@ -241,6 +262,139 @@ def get_decision_with_qvalues(task, state):
     return DECIDERS[domain](task, state)
 
 
+def get_reason_hint(task, state, action):
+    """
+    Builds a SPECIFIC, numbers-grounded reason for explain_decision() to work
+    from, instead of the generic "selected as optimal by Q-learning" boilerplate.
+    This is what actually makes the LLM's explanation concrete (mirrors
+    hospital_assistant.py's get_reason_hint, extended to every domain).
+    """
+    if task == "bed_allocation":
+        beds = state["free_beds"]
+        if action == "Admit":
+            return f"{beds} beds available — sufficient capacity to admit safely"
+        elif action == "Transfer":
+            return f"only {beds} beds available — preserving capacity by transferring"
+        else:
+            return f"{beds} beds available and transfer capacity exhausted — rejection is a last resort"
+
+    elif task == "er_queue":
+        eq, nq = state["emergency_queue"], state["normal_queue"]
+        if action == "Serve Emergency":
+            return f"{eq} emergency patients waiting (normal queue: {nq}) — emergency always takes strict priority while non-empty"
+        else:
+            return f"emergency queue is empty — safe to serve normal queue ({nq} waiting)"
+
+    elif task == "staff_allocation":
+        load, docs = state["patient_load"], state["available_doctors"]
+        if action == "Assign More Staff":
+            return f"patient load is {load} with {docs} doctors on duty — above safe staffing threshold"
+        elif action == "Reduce Staff":
+            return f"patient load is {load} with {docs} doctors on duty — low enough to reduce cost safely"
+        else:
+            return f"patient load is {load} with {docs} doctors on duty — within balanced staffing range"
+
+    elif task == "intersection":
+        return (f"NS: {state['cars_NS']} cars waited {state['wait_NS']} steps, "
+                f"EW: {state['cars_EW']} cars waited {state['wait_EW']} steps")
+
+    elif task == "pedestrian":
+        return (f"{state['peds']} pedestrians waited {state['ped_wait']} steps, "
+                f"{state['vehs']} vehicles waited {state['veh_wait']} steps")
+
+    elif task == "parking":
+        return (f"{state['spots']} spots available, {state['incoming']} incoming, "
+                f"queue waited {state['queue_wait']} steps")
+
+    elif task == "solar_scheduling":
+        return (f"solar={state['solar_output']}/9, home use={state['home_consumption']}/9, "
+                f"battery={state['battery_level']}/9")
+
+    elif task == "battery_management":
+        return (f"battery={state['battery_level']}/9, solar={state['solar_output']}/9, "
+                f"grid price level={state['grid_price']}")
+
+    elif task == "grid_interaction":
+        return (f"grid price level={state['grid_price']}, surplus={state['solar_surplus']}/9, "
+                f"battery={state['battery_level']}/9")
+
+    elif task == "trading":
+        return f"price trend={state['price_trend']}, shares held={state['shares_held']}, cash=${state['cash']:.0f}"
+
+    elif task == "savings":
+        return (f"income=${state['monthly_income']:.0f}, savings=${state['current_savings']:.0f}, "
+                f"expenses=${state['expenses']:.0f}, {state['months_remaining']:.0f} months left")
+
+    elif task == "budget":
+        remaining = state["total_budget"] - state["amount_spent"]
+        return (f"${remaining:.0f} of ${state['total_budget']:.0f} remaining, "
+                f"{state['urgent_requests']:.0f} urgent requests pending")
+
+    elif task == "soil_preparation":
+        return (f"pH={state['soil_ph']}, organic matter={state['organic_matter']}%, "
+                f"drainage={state['drainage_quality']}%, {state['days_remaining']} days left")
+
+    elif task == "irrigation":
+        return (f"reservoir={state['water_reservoir']}, crop stress={state['crop_stress']}, "
+                f"rainfall trend={state['rainfall_trend']}")
+
+    elif task == "pest_control":
+        remaining = state["total_resource"] - state["resource_used"]
+        return (f"{remaining:.0f} resource remaining, {state['urgent_outbreaks']:.0f} urgent outbreaks, "
+                f"{state['plots_remaining']:.0f} plots left")
+
+    return f"Selected as the optimal action by the trained Q-learning policy for '{task}'."
+
+
+def _hospital_network_suggestion(task, state, action):
+    """
+    If this hospital can't help (out of beds, or ER overloaded), find the
+    nearest connected hospital that currently has capacity. Mirrors the
+    trigger logic in hospital_assistant.py's process_task().
+    Returns a human-readable line, or None if not applicable / unavailable.
+    """
+    if not HAS_HOSPITAL_NETWORK:
+        return None
+
+    if task == "bed_allocation":
+        update_this_hospital_status(free_beds=state["free_beds"], free_er_beds=0)
+        if action in ("Transfer", "Reject"):
+            suggestion = suggest_nearby_hospital(need_er=False)
+            return format_suggestion(suggestion, need_er=False,
+                                      reason=f"Only {state['free_beds']} beds available here")
+
+    elif task == "er_queue":
+        eq = state.get("emergency_queue", 0)
+        if eq >= ER_QUEUE_STRAIN_THRESHOLD:
+            suggestion = suggest_nearby_hospital(need_er=True)
+            return format_suggestion(suggestion, need_er=True,
+                                      reason=f"ER overloaded here ({eq} emergency patients waiting)")
+
+    return None
+
+
+def _state_diff_summary(task, before, after):
+    """
+    Deterministic, non-LLM-generated account of exactly what changed on this
+    turn. Guaranteed accurate (unlike the LLM's prose explanation), since it's
+    computed directly from the before/after dicts rather than generated text.
+    Returns None if there's nothing to report (e.g. task not stateful, or
+    state_manager.py unavailable).
+    """
+    if before is after or not isinstance(before, dict) or not isinstance(after, dict):
+        return None
+    changes = []
+    for key in before:
+        if key == "last_updated":
+            continue
+        b, a = before.get(key), after.get(key)
+        if b != a:
+            changes.append(f"{key.replace('_', ' ')}: {b} → {a}")
+    if not changes:
+        return None
+    return "📊 Live update — " + "; ".join(changes) + "."
+
+
 def _confidence_from_qvalues(q_pairs, chosen_action):
     """
     Softmax probability of the chosen action, as a 0..1 'confidence' score.
@@ -259,7 +413,7 @@ def _confidence_from_qvalues(q_pairs, chosen_action):
 # — matches main.py's get_explanation()
 # =============================================================================
 def get_explanation(retriever, task, state, action):
-    reason_hint = f"Selected as the optimal action by the trained Q-learning policy for '{task}'."
+    reason_hint = get_reason_hint(task, state, action)
     chunks = []
     if task in TASK_SOURCE_MAP:
         query  = build_query(task, state, action)
@@ -285,7 +439,18 @@ app.add_middleware(
 # single-user CLI demos (hospital_assistant.py, main.py, etc). If this needs
 # multiple concurrent users later, key these three by a client/session id
 # passed from the frontend instead of using module-level globals.
-known_state           = {t: dict(DEFAULT_STATE[t]) for t in DEFAULT_STATE}
+known_state = {t: dict(DEFAULT_STATE[t]) for t in DEFAULT_STATE}
+
+# For hospital tasks specifically, hydrate from the real hospital_state.json
+# on disk (via state_manager.py) instead of hardcoded defaults, so bed/queue/
+# staff counts survive server restarts and reflect whatever was last written.
+if HAS_STATE_MANAGER:
+    for _task in HOSPITAL_TASKS:
+        try:
+            known_state[_task] = get_task_state(_task)
+        except (FileNotFoundError, ValueError):
+            pass  # fall back to the hardcoded default already set above
+
 conversation_history  = []
 query_history         = []   # newest first, for GET /api/history
 MAX_CONVO_HISTORY     = 12
@@ -299,6 +464,14 @@ def get_retriever():
     if _retriever is None:
         _retriever = PolicyRetriever(os.path.join(REPO_ROOT, "knowledge_base"))
     return _retriever
+
+
+# Seed the (demo/mock) hospital network so bed_allocation Transfer/Reject and
+# er_queue overload decisions can suggest a nearby hospital with capacity —
+# same as hospital_assistant.py does on the CLI. Safe no-op if
+# hospital_network.py isn't importable.
+if HAS_HOSPITAL_NETWORK:
+    seed_demo_network(this_hospital_free_beds=known_state["bed_allocation"]["free_beds"])
 
 
 class QueryRequest(BaseModel):
@@ -359,7 +532,13 @@ def query(req: QueryRequest):
         raise HTTPException(status_code=422, detail=question)
 
     known_state[task] = extraction["state"]
-    state = known_state[task]
+    state = known_state[task]   # decision-time state — used for the decision, reason hint, and explanation
+
+    # Persist user-stated numbers to hospital_state.json for hospital tasks,
+    # so the live bed/queue/staff picture survives restarts and other clients
+    # (CLI assistants) see the same numbers.
+    if HAS_STATE_MANAGER and task in HOSPITAL_TASKS:
+        merge_new_arrivals(task, state)
 
     # ── 3. Decide ──────────────────────────────────────────────────────────
     action, q_pairs, error = get_decision_with_qvalues(task, state)
@@ -374,6 +553,26 @@ def query(req: QueryRequest):
 
     # ── 4. Explain ─────────────────────────────────────────────────────────
     explanation = get_explanation(retriever, task, state, action)
+
+    # ── 4b. Hospital Suggestion Network ──────────────────────────────────────
+    # If this hospital can't help (out of beds, ER overloaded), surface the
+    # nearest connected hospital with capacity, right alongside the explanation.
+    network_line = _hospital_network_suggestion(task, state, action)
+    if network_line:
+        explanation = f"{explanation}\n\n🏥 {network_line}"
+
+    # ── 4c. Apply the action's real effect for NEXT time ─────────────────────
+    # Admit -> free_beds -= 1, Serve Emergency -> emergency_queue -= 1, etc.
+    # Written to hospital_state.json now that the response for THIS turn is
+    # already built from the pre-action numbers above.
+    state_after_action = state
+    diff_summary = None
+    if HAS_STATE_MANAGER and task in HOSPITAL_TASKS:
+        state_after_action = apply_action_effect(task, action)
+        known_state[task] = state_after_action
+        diff_summary = _state_diff_summary(task, state, state_after_action)
+        if diff_summary:
+            explanation = f"{explanation}\n\n{diff_summary}"
 
     conversation_history.append({"role": "assistant", "content": f"Processed: {task} -> {action}"})
 
@@ -398,6 +597,8 @@ def query(req: QueryRequest):
         "extract": {
             "task":  task,
             "state": state,
+            "state_after_action": state_after_action,
+            "diff_summary": diff_summary,
             "notes": extraction["notes"],
         },
         "decide": {
@@ -405,6 +606,7 @@ def query(req: QueryRequest):
             "confidence":    confidence,
             "q_values":      q_sorted,
         },
+        "network_suggestion": network_line,
         "explain": explanation,
     }
 
@@ -423,4 +625,4 @@ if __name__ == "__main__":
 
     print("\n  UMORDA backend starting on http://localhost:8000")
     print("  Frontend served from the same URL — API lives under /api/*.\n")
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -2,14 +2,18 @@
 UMORDA — Groq LLM Integration (Hospital + Traffic + Energy + Finance + Agriculture)
 File: llm_client.py
 
-FIXED VERSION:
-- Smarter router (only activates tasks user actually mentioned)
-- Better extractor (understands scale properly)
-- Better explainer (no raw Q-values, human friendly language)
-- Scale context added so LLM never confuses price/battery levels
-- Finance + Agriculture task specs added so route_message()/extract_state()
-  can reach trading/savings/budget and soil_preparation/irrigation/pest_control
-  (previously only hospital/traffic/energy were wired up here)
+FIXED VERSION (this pass):
+- extract_state() now explicitly instructs the LLM that stated counts are the
+  CURRENT TOTAL, not additions to the previous count. This was causing queue
+  numbers to compound across turns (e.g. "11 emergency" + "11 emergency" ->
+  16/21 instead of staying at 11) when the user restated a situation.
+- er_queue's emergency_queue range corrected from 0-10 to 0-20, matching the
+  real trained environment (hospital_env.py's observation_space caps it at 20,
+  not 10) -- the stale 0-10 hint was making the extractor treat 10-20 as
+  out-of-range / ambiguous.
+
+(Everything else below is unchanged from the prior fixed version: smarter
+router, scale context, human-friendly explainer, Finance + Agriculture specs.)
 """
 
 import os, json, re
@@ -110,12 +114,13 @@ TASK_FIELD_SPECS = {
         "waiting_patients": "patients waiting to be admitted (integer, 0-30)",
     },
     "er_queue": {
-        "emergency_queue": "emergency patients waiting (integer, 0-10)",
-        "normal_queue":    "normal patients waiting (integer, 0-20)",
+        # FIXED: was "0-10" -- real trained env (hospital_env.py) caps this at 20.
+        "emergency_queue": "emergency patients waiting (integer, 0-20)",
+        "normal_queue":    "normal patients waiting (integer, 0-40)",
     },
     "staff_allocation": {
-        "available_doctors": "doctors on duty (integer, 1-15)",
-        "patient_load":      "current patient load (integer, 0-50)",
+        "available_doctors": "doctors on duty (integer, 1-20)",
+        "patient_load":      "current patient load (integer, 0-80)",
     },
 
     # TRAFFIC (Ador)
@@ -293,12 +298,17 @@ STRICT RULES:
 
 
 # =============================================================================
-# 2. EXTRACTOR — FIXED: understands scale and weather context properly
+# 2. EXTRACTOR — FIXED: understands scale properly AND treats stated numbers
+#    as the current absolute total, not an addition to the previous state.
 # =============================================================================
 def extract_state(task, user_message, known_state, conversation_history=None):
     """
     Extracts numeric state from natural language.
-    FIXED: Proper scale understanding, weather context, price mapping.
+    FIXED (this pass): stated counts are now explicitly treated as the CURRENT
+    TOTAL right now, not an increment on top of the previous known value. This
+    was the root cause of queue numbers compounding across turns (e.g. saying
+    "11 emergency patients" twice in a row was sometimes being read as +11 on
+    top of the existing count instead of "the queue is currently 11").
     """
     fields     = TASK_FIELD_SPECS[task]
     field_desc = "\n".join(f"- {k}: {v}" for k, v in fields.items())
@@ -356,6 +366,15 @@ Fields to extract:
 CRITICAL EXTRACTION RULES:
 {domain_rules}9. Only update fields the message mentions. Keep others from known state.
 10. If value is impossible → needs_clarification = true.
+11. ABSOLUTE VALUES, NOT ADDITIONS: every number the user states is the CURRENT
+    TOTAL count right now — a fresh snapshot of the situation, NOT extra
+    patients/cars/units to add on top of the previous known value. If the
+    known state says emergency_queue=10 and the user says "11 emergency
+    patients waiting", the new value is 11 (replacing 10), NEVER 10+11=21.
+    Only treat a number as additive if the user explicitly uses language like
+    "X more arrived", "an additional X", or "X just showed up" — plain
+    restatement of a count ("there are X waiting") is always absolute, not
+    additive, even if it's close to or the same as the previous value.
 
 Output ONLY this JSON:
 {{
@@ -365,7 +384,8 @@ Output ONLY this JSON:
   "notes": "brief note on what was extracted"
 }}
 """
-    user_prompt = f"""Known state: {json.dumps(known_state)}{history_text}
+    user_prompt = f"""Known state (previous turn — for reference only, do NOT add to it unless
+the message explicitly says "more" or "additional"): {json.dumps(known_state)}{history_text}
 
 User said: "{user_message}"
 
