@@ -20,7 +20,7 @@ import os, json, re
 import requests
 from groq import Groq
 
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "openai/gpt-oss-120b" 
 
 # ── Backend switch ───────────────────────────────────────────────────────
 # Set LLM_BACKEND=ollama in your environment to run everything (router,
@@ -89,10 +89,11 @@ def _call_llm(system_prompt, user_prompt, temperature=0.2, max_tokens=400):
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_prompt},
         ],
-        temperature=temperature,
-        max_tokens=max_tokens,
+        max_tokens=max(max_tokens, 1200),
+        reasoning_effort="low",
     )
-    return response.choices[0].message.content.strip()
+    content = response.choices[0].message.content
+    return (content or "").strip()  
 
 
 def _parse_json(raw):

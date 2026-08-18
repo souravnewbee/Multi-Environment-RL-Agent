@@ -494,11 +494,43 @@ def history():
     return query_history[:30]
 
 
+@app.get("/api/state")
+def state_snapshot():
+    """
+    Full live dashboard data: every domain's current values, grouped by
+    domain then task -- e.g. Hospital -> bed_allocation -> {free_beds,
+    waiting_patients}. This is the persistent "what does the agent
+    currently know" board, not tied to whichever task the last query
+    happened to touch. The frontend polls this after every query so the
+    sidebar reflects the full picture, not just the last domain used.
+    """
+    by_domain: dict = {}
+    for task, domain in TASK_DOMAIN.items():
+        by_domain.setdefault(domain, {})[task] = {
+            "task_label": TASK_LABELS[task],
+            "fields": {
+                k: v for k, v in known_state[task].items() if k != "last_updated"
+            },
+            "last_updated": known_state[task].get("last_updated"),
+        }
+    return {
+        domain: {"label": DOMAIN_LABELS[domain], "tasks": tasks}
+        for domain, tasks in by_domain.items()
+    }
+
+
 @app.post("/api/query")
 def query(req: QueryRequest):
     user_message = req.query.strip()
     if not user_message:
         raise HTTPException(status_code=400, detail="Empty query.")
+
+    if not os.environ.get("GROQ_API_KEY") and os.environ.get("LLM_BACKEND", "groq") != "ollama":
+        raise HTTPException(
+            status_code=503,
+            detail="Server is missing GROQ_API_KEY (or LLM_BACKEND=ollama). "
+                   "Set it and restart ui/app.py -- see the terminal warning at startup.",
+        )
 
     retriever = get_retriever()
 
@@ -506,7 +538,14 @@ def query(req: QueryRequest):
     del conversation_history[:-MAX_CONVO_HISTORY]
 
     # ── 1. Route ───────────────────────────────────────────────────────────
-    tasks = route_message(user_message, conversation_history)
+    try:
+        tasks = route_message(user_message, conversation_history)
+    except Exception as e:
+        # Covers a bad/expired key, Groq being down, network errors, etc. --
+        # anything past the GROQ_API_KEY presence check above still lands
+        # here as a clean 503 instead of a bare 500 with no detail.
+        raise HTTPException(status_code=503, detail=f"LLM routing call failed: {e}")
+
     if req.domain:
         # Respect an explicit domain filter from the UI's dropdown. If the
         # router didn't surface a task in that domain, fall back to any task
@@ -526,7 +565,11 @@ def query(req: QueryRequest):
     domain = TASK_DOMAIN[task]
 
     # ── 2. Extract ─────────────────────────────────────────────────────────
-    extraction = extract_state(task, user_message, known_state[task], conversation_history)
+    try:
+        extraction = extract_state(task, user_message, known_state[task], conversation_history)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"LLM extraction call failed: {e}")
+
     if extraction["needs_clarification"]:
         question = extraction["clarification_question"] or "Could you clarify the numbers involved?"
         raise HTTPException(status_code=422, detail=question)
@@ -552,7 +595,10 @@ def query(req: QueryRequest):
     )
 
     # ── 4. Explain ─────────────────────────────────────────────────────────
-    explanation = get_explanation(retriever, task, state, action)
+    try:
+        explanation = get_explanation(retriever, task, state, action)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"LLM explanation call failed: {e}")
 
     # ── 4b. Hospital Suggestion Network ──────────────────────────────────────
     # If this hospital can't help (out of beds, ER overloaded), surface the

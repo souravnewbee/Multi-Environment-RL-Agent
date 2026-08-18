@@ -8,11 +8,14 @@ const historyList = document.getElementById("historyList");
 const statusDot = document.getElementById("statusDot");
 const statusText = document.getElementById("statusText");
 const stages = document.querySelectorAll(".stage");
+const stateTableArea = document.getElementById("stateTableArea");
+let lastQueriedTask = null;   // used only to highlight what just changed
 
 // ---------- init ----------
 checkHealth();
 loadDomains();
 loadHistory();
+loadStateDashboard();
 
 async function checkHealth() {
   try {
@@ -51,6 +54,16 @@ async function loadHistory() {
   }
 }
 
+async function loadStateDashboard() {
+  try {
+    const res = await fetch(`${API_BASE}/api/state`);
+    const domains = await res.json();
+    renderStateDashboard(domains);
+  } catch {
+    stateTableArea.innerHTML = `<p class="empty-msg small">Couldn't load live state — start the API on :8000.</p>`;
+  }
+}
+
 // ---------- run query ----------
 runBtn.addEventListener("click", runQuery);
 queryInput.addEventListener("keydown", (e) => {
@@ -85,6 +98,7 @@ async function runQuery() {
       if (res.status === 422) {
         renderClarification(detail);
         loadHistory();
+        loadStateDashboard();
         return;
       }
       throw new Error(detail);
@@ -96,8 +110,10 @@ async function runQuery() {
     await animateStage("decide", 250);
     await animateStage("explain", 250);
 
+    lastQueriedTask = data.route.task;
     renderResult(data);
     loadHistory();
+    loadStateDashboard();
   } catch (e) {
     resultArea.innerHTML = `<p class="empty-msg" style="color:#c23b3b;">Error: ${escapeHtml(e.message)}</p>`;
   } finally {
@@ -188,8 +204,6 @@ function renderResult(data) {
       ${qRows}
     </div>
 
-    ${renderStateTable(data.extract)}
-
     <div class="explanation">
       <h3>Explanation</h3>
       ${explainParts}
@@ -197,56 +211,54 @@ function renderResult(data) {
   `;
 }
 
-// Renders the live state as a before -> after table when the backend
-// actually applied an effect (hospital tasks with state_manager.py wired
-// in). Falls back to a single-column "current state" table otherwise, so
-// every domain still gets to show what values were used for the decision.
-function renderStateTable(extract) {
-  const state = extract.state || {};
-  const after = extract.state_after_action;
-  const hasChange = after && Object.keys(state).some(
-    (k) => k !== "last_updated" && state[k] !== after[k]
-  );
+// Renders every domain's live values in the sidebar, under History -- e.g.
+// Hospital's bed/queue/staff counts, Finance's cash/portfolio, Energy's
+// battery/solar levels, Agriculture's soil/water readings, Traffic's car
+// counts and wait times. This is a persistent dashboard: it always shows
+// every domain's current numbers, not just whichever domain the last query
+// happened to touch. The task most recently updated by a query is
+// highlighted so it's obvious what just changed.
+function renderStateDashboard(domainsData) {
+  const domainOrder = ["hospital", "traffic", "energy", "finance", "agriculture"];
+  const keys = domainOrder.filter((d) => domainsData[d]);
 
-  const keys = Object.keys(state).filter((k) => k !== "last_updated");
-  if (keys.length === 0) return "";
+  if (keys.length === 0) {
+    stateTableArea.innerHTML = `<p class="empty-msg small">No state data yet.</p>`;
+    return;
+  }
 
-  const rows = keys
-    .map((k) => {
-      const label = escapeHtml(k.replace(/_/g, " "));
-      if (hasChange) {
-        const before = state[k];
-        const now = after[k];
-        const changed = before !== now;
-        return `
-          <tr class="${changed ? "state-row-changed" : ""}">
-            <td class="state-key">${label}</td>
-            <td class="state-val">${escapeHtml(String(before))}</td>
-            <td class="state-arrow">→</td>
-            <td class="state-val ${changed ? "state-val-new" : ""}">${escapeHtml(String(now))}</td>
-          </tr>`;
-      }
+  const sections = keys
+    .map((domainKey) => {
+      const domain = domainsData[domainKey];
+      const taskBlocks = Object.entries(domain.tasks)
+        .map(([taskKey, task]) => {
+          const isRecent = taskKey === lastQueriedTask;
+          const fieldRows = Object.entries(task.fields)
+            .map(
+              ([fieldKey, value]) => `
+                <div class="state-row-values">
+                  <span class="state-field-key">${escapeHtml(fieldKey.replace(/_/g, " "))}</span>
+                  <span class="state-val">${escapeHtml(String(value))}</span>
+                </div>`
+            )
+            .join("");
+          return `
+            <div class="state-task-block ${isRecent ? "state-task-recent" : ""}">
+              <span class="state-task-label">${escapeHtml(task.task_label)}</span>
+              ${fieldRows}
+            </div>`;
+        })
+        .join("");
+
       return `
-        <tr>
-          <td class="state-key">${label}</td>
-          <td class="state-val" colspan="3">${escapeHtml(String(state[k]))}</td>
-        </tr>`;
+        <div class="state-domain-block">
+          <span class="state-domain-label">${escapeHtml(domain.label)}</span>
+          ${taskBlocks}
+        </div>`;
     })
     .join("");
 
-  const header = hasChange
-    ? `<tr><th>Field</th><th>Before</th><th></th><th>After this decision</th></tr>`
-    : `<tr><th>Field</th><th colspan="3">Current value</th></tr>`;
-
-  return `
-    <div class="state-table-block">
-      <h3>${hasChange ? "Live State — Before → After" : "State Used For This Decision"}</h3>
-      <table class="state-table">
-        <thead>${header}</thead>
-        <tbody>${rows}</tbody>
-      </table>
-      ${extract.notes ? `<p class="state-notes">${escapeHtml(extract.notes)}</p>` : ""}
-    </div>`;
+  stateTableArea.innerHTML = sections;
 }
 
 function renderHistory(items) {

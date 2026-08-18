@@ -245,7 +245,7 @@ textarea:focus, select:focus, button:focus {
 .qvalues {
   margin-bottom: 18px;
 }
-.qvalues h3, .explanation h3, .state-table-block h3 {
+.qvalues h3, .explanation h3 {
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -284,49 +284,76 @@ textarea:focus, select:focus, button:focus {
 }
 .explanation p:last-child { margin-bottom: 0; }
 
-/* ---------- live state table (before -> after) ---------- */
-.state-table-block {
-  margin-bottom: 18px;
+/* ---------- live state dashboard (sidebar, under history) ---------- */
+.state-panel-heading {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+  margin: 22px 0 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
 }
-.state-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: var(--mono);
-  font-size: 0.82rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
+
+.empty-msg.small { font-size: 0.82rem; }
+
+#stateTableArea {
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
-.state-table th {
-  text-align: left;
-  font-family: var(--sans);
+
+.state-domain-block {
+  margin-bottom: 14px;
+}
+.state-domain-block:last-child { margin-bottom: 0; }
+
+.state-domain-label {
+  display: block;
   font-size: 0.72rem;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.state-task-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+.state-task-block:last-child { margin-bottom: 0; }
+.state-task-block.state-task-recent {
+  background: var(--good-soft);
+  border-color: #cfe8db;
+}
+
+.state-task-label {
+  display: block;
+  font-size: 0.7rem;
   color: var(--ink-soft);
-  background: #fafafa;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+  margin-bottom: 5px;
 }
-.state-table td {
-  padding: 7px 12px;
-  border-bottom: 1px solid var(--border);
+
+.state-row-values {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.8rem;
+  padding: 1px 0;
 }
-.state-table tr:last-child td { border-bottom: none; }
-.state-key {
-  font-family: var(--sans);
+.state-field-key {
   color: var(--ink-soft);
   text-transform: capitalize;
+  font-size: 0.75rem;
 }
-.state-val { color: var(--ink); }
-.state-arrow { color: var(--ink-soft); text-align: center; width: 20px; }
-.state-row-changed { background: var(--good-soft); }
-.state-val-new { color: var(--good); font-weight: 600; }
-.state-notes {
-  font-size: 0.8rem;
-  color: var(--ink-soft);
-  margin: 8px 2px 0;
-  font-style: italic;
+.state-val {
+  font-family: var(--mono);
+  color: var(--ink);
+  font-weight: 500;
 }
 
 /* ---------- clarification box ---------- */
