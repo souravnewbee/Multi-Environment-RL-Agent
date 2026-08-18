@@ -1,0 +1,42 @@
+{
+  "domain": "finance",
+  "task": "trading",
+  "episodes": 50000,
+  "alpha": 0.1,
+  "gamma": 0.9,
+  "epsilon_start": 1.0,
+  "epsilon_min": 0.01,
+  "epsilon_decay": 0.9995,
+  "q_table_shape": [
+    5,
+    4,
+    6,
+    3
+  ],
+  "state_vars": [
+    "price_trend",
+    "shares_held",
+    "cash",
+    "portfolio_value"
+  ],
+  "actions": [
+    "Buy",
+    "Sell",
+    "Hold"
+  ],
+  "n_actions": 3,
+  "trained_mean": 156.448,
+  "random_mean": 45.783,
+  "improvement_pct": 241.72,
+  "training_time_s": 162.3,
+  "final_epsilon": 0.01,
+  "avg_last_5k": 184.0502,
+  "avg_first_5k": 125.3288,
+  "tickers_used": [
+    "AAPL",
+    "TSLA",
+    "SPY",
+    "MSFT"
+  ],
+  "data_source": "yfinance + GBM fallback"
+}

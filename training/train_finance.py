@@ -4,6 +4,15 @@ training/train_finance.py
 Trains Q-learning agents for all 3 Finance tasks.
 Matches the exact structure of train_hospital.py.
 
+FIXED (this version):
+    The original loop created a brand-new FinanceEnv(task="trading", ...)
+    on EVERY episode, which re-triggered a live yfinance download each
+    time -- 50,000 network calls total. That's almost certainly why
+    training would stall/crash before ever reaching the savings/budget
+    tasks (they ran second and third). This version loads each ticker's
+    price data ONCE, up front, and reuses those envs across episodes --
+    exactly like the non-trading tasks already did.
+
 CHANGED: the Q-table itself is now saved via qtable_store.py (SQLite) into
 qtables/qtables.db instead of a standalone .npy file. Metadata JSON, plots,
 and the combined summary JSON are unchanged — they're small/human-readable
@@ -112,14 +121,27 @@ def train_task(task):
     rewards   = []
     start     = time.time()
 
+    # ── FIX: load each ticker's price data ONCE, not once per episode. ────────
+    # The old code did `FinanceEnv(task="trading", ticker=ticker, ...)` inside
+    # the episode loop, which re-hit yfinance on every single episode (50,000
+    # network calls). Preloading here means the network fetch happens at most
+    # once per ticker (4 total), and episodes just rotate between envs.
+    if task == "trading":
+        print(f"  Preloading price data for {len(TICKERS)} tickers "
+              f"(one-time fetch, not per-episode)...")
+        envs_by_ticker = {}
+        for ticker in TICKERS:
+            t0 = time.time()
+            envs_by_ticker[ticker] = FinanceEnv(task=task, ticker=ticker, use_real_data=True)
+            src = envs_by_ticker[ticker]._data_source
+            print(f"    {ticker:<8} loaded in {time.time()-t0:.1f}s  ({src})")
+    else:
+        env = FinanceEnv(task=task)
+
     for ep in range(EPISODES):
-        # Rotate tickers for trading task every episode
         if task == "trading":
             ticker = TICKERS[ep % len(TICKERS)]
-            env    = FinanceEnv(task=task, ticker=ticker, use_real_data=True)
-        else:
-            if ep == 0:
-                env = FinanceEnv(task=task)
+            env    = envs_by_ticker[ticker]
 
         state    = env.reset()
         total_r  = 0.0
@@ -163,9 +185,9 @@ def train_task(task):
 
     for _ in range(EVAL_EPISODES):
         if task == "trading":
-            eval_env = FinanceEnv(task=task, ticker="AAPL", use_real_data=True)
+            eval_env = envs_by_ticker["AAPL"]   # reuse preloaded env, no new fetch
         else:
-            eval_env = FinanceEnv(task=task)
+            eval_env = env
 
         # Trained
         state = eval_env.reset()
@@ -225,7 +247,7 @@ def save_results(task, Q, rewards, trained, baseline, improvement, elapsed):
         "q_table_shape":    list(Q.shape),
         "state_vars":       env_info["state_vars"],
         "actions":          env_info["actions"],
-        "n_actions":        env_info["n_actions"],
+        "n_actions":        len(env_info["actions"]),
         "trained_mean":     round(float(trained), 4),
         "random_mean":      round(float(baseline), 4),
         "improvement_pct":  round(float(improvement), 2),

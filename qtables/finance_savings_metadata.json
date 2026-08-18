@@ -1,0 +1,37 @@
+{
+  "domain": "finance",
+  "task": "savings",
+  "episodes": 50000,
+  "alpha": 0.1,
+  "gamma": 0.9,
+  "epsilon_start": 1.0,
+  "epsilon_min": 0.01,
+  "epsilon_decay": 0.9995,
+  "q_table_shape": [
+    6,
+    5,
+    5,
+    3
+  ],
+  "state_vars": [
+    "monthly_income",
+    "current_savings",
+    "expenses",
+    "months_remaining"
+  ],
+  "actions": [
+    "Save More",
+    "Spend Normal",
+    "Invest"
+  ],
+  "n_actions": 3,
+  "trained_mean": 954.88,
+  "random_mean": 606.334,
+  "improvement_pct": 57.48,
+  "training_time_s": 160.7,
+  "final_epsilon": 0.01,
+  "avg_last_5k": 959.5434,
+  "avg_first_5k": 827.5868,
+  "tickers_used": null,
+  "data_source": "simulation"
+}
