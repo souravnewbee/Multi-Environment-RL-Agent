@@ -25,13 +25,13 @@
     "Invest"
   ],
   "n_actions": 3,
-  "trained_mean": 954.88,
-  "random_mean": 606.334,
-  "improvement_pct": 57.48,
-  "training_time_s": 160.7,
+  "trained_mean": 926.296,
+  "random_mean": 602.31,
+  "improvement_pct": 53.79,
+  "training_time_s": 177.7,
   "final_epsilon": 0.01,
-  "avg_last_5k": 959.5434,
-  "avg_first_5k": 827.5868,
+  "avg_last_5k": 954.5072,
+  "avg_first_5k": 833.9122,
   "tickers_used": null,
   "data_source": "simulation"
 }
