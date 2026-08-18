@@ -247,7 +247,7 @@ def save_results(task, Q, rewards, trained, baseline, improvement, elapsed):
         "q_table_shape":    list(Q.shape),
         "state_vars":       env_info["state_vars"],
         "actions":          env_info["actions"],
-        "n_actions":        len(env_info["actions"]),
+        "n_actions":        env.n_actions,
         "trained_mean":     round(float(trained), 4),
         "random_mean":      round(float(baseline), 4),
         "improvement_pct":  round(float(improvement), 2),
