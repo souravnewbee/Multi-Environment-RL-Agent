@@ -161,9 +161,100 @@ def _state_order(task):
 
 
 # =============================================================================
+# Extraction drift guard
+#
+# extract_state()'s prompt says "only update fields the message mentions,"
+# but that's a soft LLM instruction, not a guarantee -- e.g. "5 normal
+# patients" was observed silently zeroing emergency_queue with no mention
+# of it at all. This only reverts a change when the field has a known
+# synonym list AND none of those synonyms appear in the message; fields
+# without an entry here are trusted as before, so this only tightens the
+# cases we've actually seen drift on.
+# =============================================================================
+FIELD_SYNONYMS = {
+    "emergency_queue":   {"emergency", "critical", "urgent", "ambulance", "code", " er "},
+    "normal_queue":      {"normal", "regular", "routine", "non-urgent", "non urgent"},
+    "free_beds":         {"bed", "beds", "capacity", "room"},
+    "waiting_patients":  {"waiting", "patient", "patients", "queue"},
+    "available_doctors": {"doctor", "doctors", "staff", "physician", "nurse"},
+    "patient_load":      {"load", "patients", "workload"},
+}
+
+
+def guard_extraction(user_message: str, old_state: dict, new_state: dict):
+    """Revert any field change not backed by a keyword match in the message.
+    Returns (guarded_state, reverted_field_names)."""
+    msg = f" {user_message.lower()} "
+    guarded = dict(new_state)
+    reverted = []
+    for field, new_val in new_state.items():
+        old_val = old_state.get(field)
+        if old_val is None or new_val == old_val:
+            continue
+        keywords = FIELD_SYNONYMS.get(field)
+        if keywords is None:
+            continue
+        if not any(kw in msg for kw in keywords):
+            guarded[field] = old_val
+            reverted.append(field)
+    return guarded, reverted
+
+
+# =============================================================================
+# Hard safety overrides — hospital domain
+#
+# traffic_env.py already has _safety_override(): a hard rule layered on top
+# of the learned Q-values (e.g. "8+ steps waiting -> forced switch, no
+# exceptions"). hospital_env.py has no equivalent, and its discretize()
+# buckets emergency_queue values 0-3 together (// 4), so the Q-table
+# literally cannot always distinguish "empty" from "a few waiting" -- the
+# learned argmax for that bucket can be "Serve Emergency" even when the
+# true value is 0. These are the same "never" rules already stated as
+# absolutes in knowledge_base/*.md; this just enforces them as hard floors
+# instead of leaving them to reward shaping + a coarse bucket.
+# =============================================================================
+def apply_hospital_safety(task: str, state: dict, action: str):
+    if task == "er_queue":
+        if state["emergency_queue"] == 0 and action == "Serve Emergency" and state["normal_queue"] > 0:
+            return "Serve Normal", "emergency queue is empty — serving the normal queue instead"
+        if state["emergency_queue"] > 0 and action == "Serve Normal":
+            return "Serve Emergency", "emergency patients waiting take strict priority over normal queue"
+    elif task == "bed_allocation":
+        if action == "Reject":
+            forced = "Admit" if state["free_beds"] > 0 else "Transfer"
+            return forced, "rejecting a patient is against policy — admitting or transferring instead"
+        if state["free_beds"] == 0 and action == "Admit":
+            return "Transfer", "no free beds — admission isn't physically possible"
+    elif task == "staff_allocation":
+        if state["patient_load"] > 30 and action == "Reduce Staff":
+            return "Assign More Staff", "never reduce staff under high patient load"
+    return action, None
+
+
+def compute_bed_plan(free_beds: int, waiting_patients: int) -> dict:
+    """
+    Deterministic admit-vs-transfer breakdown for the WHOLE waiting queue,
+    matching bed_allocation_policy.md exactly: admit as many as bed space
+    allows, transfer only the overflow, never reject. This is the answer to
+    "how should the normal patients be accommodated" -- a single Admit/
+    Transfer verdict from the Q-table only covers the next one patient, not
+    the full picture across free_beds vs waiting_patients.
+    """
+    admit_now = max(0, min(free_beds, waiting_patients))
+    transfer_now = max(0, waiting_patients - admit_now)
+    return {
+        "admit_now": admit_now,
+        "transfer_now": transfer_now,
+        "beds_remaining": max(0, free_beds - admit_now),
+    }
+
+
+# =============================================================================
 # Per-domain decision + Q-value extraction
-# Every function returns (action_name, [(action_name, q_value), ...], error)
-# exactly one of (action_name, error) is None.
+# Every function returns (action_name, [(action_name, q_value), ...], error, note)
+# exactly one of (action_name, error) is None. `note` is non-None only when a
+# hard safety override changed the action (hospital) or fired (traffic) —
+# every other domain returns None for it.
 # =============================================================================
 def _decide_hospital(task, state):
     order = _state_order(task)
@@ -171,15 +262,16 @@ def _decide_hospital(task, state):
     try:
         Q = db_load_qtable(f"hospital_{task}")
     except FileNotFoundError as e:
-        return None, None, str(e)
+        return None, None, str(e), None
     try:
         s = hospital_discretize(obs, task)
         q = Q[s]
     except (IndexError, KeyError) as e:
-        return None, None, f"Discretization/Q-table mismatch for hospital/{task} ({e})."
+        return None, None, f"Discretization/Q-table mismatch for hospital/{task} ({e}).", None
     actions = HospitalEnv(task=task).actions
     action  = actions[int(np.argmax(q))]
-    return action, list(zip(actions, q.tolist())), None
+    action, note = apply_hospital_safety(task, state, action)
+    return action, list(zip(actions, q.tolist())), None, note
 
 
 def _decide_traffic(task, state):
@@ -191,14 +283,17 @@ def _decide_traffic(task, state):
     try:
         Q = db_load_qtable(f"traffic_{task}")
     except FileNotFoundError as e:
-        return None, None, str(e)
+        return None, None, str(e), None
     if encoded >= Q.shape[0]:
-        return None, None, "State index out of range for saved Q-table (shape mismatch)."
+        return None, None, "State index out of range for saved Q-table (shape mismatch).", None
     q            = Q[encoded]
     q_action     = int(np.argmax(q))
     final_action = env._safety_override(q_action)   # hard safety guarantee
     actions      = env.cfg["action_meanings"]
-    return actions[final_action], list(zip(actions, q.tolist())), None
+    note = None
+    if final_action != q_action:
+        note = "hard wait-time limit reached — forced signal switch regardless of Q-values"
+    return actions[final_action], list(zip(actions, q.tolist())), None, note
 
 
 def _decide_energy(task, state):
@@ -209,41 +304,41 @@ def _decide_energy(task, state):
     try:
         Q = db_load_qtable(f"energy_{task}")
     except FileNotFoundError as e:
-        return None, None, str(e)
+        return None, None, str(e), None
     if encoded >= Q.shape[0]:
-        return None, None, "State index out of range for saved Q-table (shape mismatch)."
+        return None, None, "State index out of range for saved Q-table (shape mismatch).", None
     q       = Q[encoded]
     actions = env.cfg["action_meanings"]
-    return actions[int(np.argmax(q))], list(zip(actions, q.tolist())), None
+    return actions[int(np.argmax(q))], list(zip(actions, q.tolist())), None, None
 
 
 def _decide_finance(task, state):
     if not HAS_FINANCE_AGENT:
-        return None, None, "agents/finance_agent.py not found."
+        return None, None, "agents/finance_agent.py not found.", None
     try:
         agent = FinanceAgent(task=task)
     except FileNotFoundError as e:
-        return None, None, str(e)
+        return None, None, str(e), None
     _, q_values, action_name = agent.get_action(state)
-    return action_name, list(zip(agent.actions, np.asarray(q_values).tolist())), None
+    return action_name, list(zip(agent.actions, np.asarray(q_values).tolist())), None, None
 
 
 def _decide_agriculture(task, state):
     if not HAS_AGRICULTURE_AGENT:
-        return None, None, "agents/agriculture_agent.py failed to import."
+        return None, None, "agents/agriculture_agent.py failed to import.", None
     order = _state_order(task)
     obs   = [state[k] for k in order]
     try:
         Q = db_load_qtable(f"agriculture_{task}")
     except FileNotFoundError as e:
-        return None, None, str(e)
+        return None, None, str(e), None
     try:
         s = agriculture_discretize(obs, task)
         q = Q[s]
     except (IndexError, KeyError) as e:
-        return None, None, f"Discretization/Q-table mismatch for agriculture/{task} ({e})."
+        return None, None, f"Discretization/Q-table mismatch for agriculture/{task} ({e}).", None
     actions = AgricultureEnv(task=task).actions
-    return actions[int(np.argmax(q))], list(zip(actions, q.tolist())), None
+    return actions[int(np.argmax(q))], list(zip(actions, q.tolist())), None, None
 
 
 DECIDERS = {
@@ -574,8 +669,17 @@ def query(req: QueryRequest):
         question = extraction["clarification_question"] or "Could you clarify the numbers involved?"
         raise HTTPException(status_code=422, detail=question)
 
-    known_state[task] = extraction["state"]
+    prior_state = dict(known_state[task])
+    guarded_state, reverted_fields = guard_extraction(user_message, prior_state, extraction["state"])
+    known_state[task] = guarded_state
     state = known_state[task]   # decision-time state — used for the decision, reason hint, and explanation
+
+    extraction_notes = extraction["notes"]
+    if reverted_fields:
+        extraction_notes = (
+            f"{extraction_notes} (kept prior value for {', '.join(reverted_fields)} — "
+            f"not mentioned in this message)"
+        ).strip()
 
     # Persist user-stated numbers to hospital_state.json for hospital tasks,
     # so the live bed/queue/staff picture survives restarts and other clients
@@ -584,7 +688,7 @@ def query(req: QueryRequest):
         merge_new_arrivals(task, state)
 
     # ── 3. Decide ──────────────────────────────────────────────────────────
-    action, q_pairs, error = get_decision_with_qvalues(task, state)
+    action, q_pairs, error, safety_note = get_decision_with_qvalues(task, state)
     if error:
         raise HTTPException(status_code=500, detail=error)
 
@@ -599,6 +703,40 @@ def query(req: QueryRequest):
         explanation = get_explanation(retriever, task, state, action)
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"LLM explanation call failed: {e}")
+
+    if safety_note:
+        explanation = f"{explanation}\n\n⚠️ Safety override: {safety_note}."
+
+    # ── 4a-i. Full admit-vs-transfer picture for bed_allocation ──────────────
+    # A single Q-table action only covers "the next one patient." This makes
+    # the full queue-vs-capacity picture explicit, per bed_allocation_policy.md:
+    # admit as many as bed space allows, transfer only the overflow.
+    if task == "bed_allocation":
+        plan = compute_bed_plan(state["free_beds"], state["waiting_patients"])
+        if state["waiting_patients"] > 0:
+            explanation = (
+                f"{explanation}\n\n📋 Full picture: {plan['admit_now']} of "
+                f"{state['waiting_patients']} waiting patients can be admitted now "
+                f"with {state['free_beds']} free beds"
+                + (f"; the remaining {plan['transfer_now']} will need transfer."
+                   if plan['transfer_now'] > 0 else ".")
+            )
+
+    # ── 4a-ii. ER → beds cross-link ───────────────────────────────────────────
+    # Once the emergency queue is clear, "Serve Normal" only tells you the ER
+    # is now handling normal patients -- it doesn't say whether the hospital
+    # actually has beds for them. Surface that here using the current known
+    # bed_allocation state.
+    if task == "er_queue" and action == "Serve Normal" and state["normal_queue"] > 0:
+        bed_state = known_state.get("bed_allocation", DEFAULT_STATE["bed_allocation"])
+        plan = compute_bed_plan(bed_state["free_beds"], state["normal_queue"])
+        explanation = (
+            f"{explanation}\n\n🛏️ Since the ER queue is clear: of the "
+            f"{state['normal_queue']} normal patients, {plan['admit_now']} can be "
+            f"admitted into the {bed_state['free_beds']} available beds now"
+            + (f"; the remaining {plan['transfer_now']} would need transfer."
+               if plan['transfer_now'] > 0 else ".")
+        )
 
     # ── 4b. Hospital Suggestion Network ──────────────────────────────────────
     # If this hospital can't help (out of beds, ER overloaded), surface the
@@ -645,7 +783,7 @@ def query(req: QueryRequest):
             "state": state,
             "state_after_action": state_after_action,
             "diff_summary": diff_summary,
-            "notes": extraction["notes"],
+            "notes": extraction_notes,
         },
         "decide": {
             "chosen_action": action,

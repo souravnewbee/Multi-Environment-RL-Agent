@@ -2,25 +2,22 @@
 UMORDA — Groq LLM Integration (Hospital + Traffic + Energy + Finance + Agriculture)
 File: llm_client.py
 
-FIXED VERSION (this pass):
-- extract_state() now explicitly instructs the LLM that stated counts are the
-  CURRENT TOTAL, not additions to the previous count. This was causing queue
-  numbers to compound across turns (e.g. "11 emergency" + "11 emergency" ->
-  16/21 instead of staying at 11) when the user restated a situation.
-- er_queue's emergency_queue range corrected from 0-10 to 0-20, matching the
-  real trained environment (hospital_env.py's observation_space caps it at 20,
-  not 10) -- the stale 0-10 hint was making the extractor treat 10-20 as
-  out-of-range / ambiguous.
-
-(Everything else below is unchanged from the prior fixed version: smarter
-router, scale context, human-friendly explainer, Finance + Agriculture specs.)
+FIXED VERSION:
+- Smarter router (only activates tasks user actually mentioned)
+- Better extractor (understands scale properly)
+- Better explainer (no raw Q-values, human friendly language)
+- Scale context added so LLM never confuses price/battery levels
+- Finance + Agriculture task specs added so route_message()/extract_state()
+  can reach trading/savings/budget and soil_preparation/irrigation/pest_control
+  (previously only hospital/traffic/energy were wired up here)
 """
 
 import os, json, re
 import requests
 from groq import Groq
 
-MODEL = "openai/gpt-oss-120b" 
+MODEL = "openai/gpt-oss-120b"   # llama-3.3-70b-versatile was deprecated by Groq (June 2026);
+                                  # this is Groq's own recommended replacement
 
 # ── Backend switch ───────────────────────────────────────────────────────
 # Set LLM_BACKEND=ollama in your environment to run everything (router,
@@ -89,15 +86,20 @@ def _call_llm(system_prompt, user_prompt, temperature=0.2, max_tokens=400):
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_prompt},
         ],
-        max_tokens=max(max_tokens, 1200),
-        reasoning_effort="low",
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
-    content = response.choices[0].message.content
-    return (content or "").strip()  
+    return response.choices[0].message.content.strip()
 
 
 def _parse_json(raw):
     cleaned = raw.replace("```json", "").replace("```", "").strip()
+    if not cleaned:
+        raise ValueError(
+            "LLM returned empty content — likely ran out of max_tokens before producing "
+            "a visible answer (common with reasoning models, which spend tokens thinking "
+            "before answering). Try raising max_tokens further if this recurs."
+        )
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
@@ -115,13 +117,12 @@ TASK_FIELD_SPECS = {
         "waiting_patients": "patients waiting to be admitted (integer, 0-30)",
     },
     "er_queue": {
-        # FIXED: was "0-10" -- real trained env (hospital_env.py) caps this at 20.
-        "emergency_queue": "emergency patients waiting (integer, 0-20)",
-        "normal_queue":    "normal patients waiting (integer, 0-40)",
+        "emergency_queue": "emergency patients waiting (integer, 0-10)",
+        "normal_queue":    "normal patients waiting (integer, 0-20)",
     },
     "staff_allocation": {
-        "available_doctors": "doctors on duty (integer, 1-20)",
-        "patient_load":      "current patient load (integer, 0-80)",
+        "available_doctors": "doctors on duty (integer, 1-15)",
+        "patient_load":      "current patient load (integer, 0-50)",
     },
 
     # TRAFFIC (Ador)
@@ -292,24 +293,23 @@ STRICT RULES:
 """
     user_prompt = f'Message: "{user_message}"{history_text}\n\nOutput JSON only.'
 
-    raw    = _call_llm(system_prompt, user_prompt, temperature=0.0, max_tokens=80)
+    raw    = _call_llm(system_prompt, user_prompt, temperature=0.0, max_tokens=400)
     parsed = _parse_json(raw)
     tasks  = parsed.get("tasks", [])
     return [t for t in tasks if t in TASK_FIELD_SPECS]
 
 
 # =============================================================================
-# 2. EXTRACTOR — FIXED: understands scale properly AND treats stated numbers
-#    as the current absolute total, not an addition to the previous state.
+# 2. EXTRACTOR — FIXED: understands scale properly, and stops guessing when
+#    the message doesn't give enough information (asks for clarification
+#    instead of inventing a plausible-sounding number)
 # =============================================================================
 def extract_state(task, user_message, known_state, conversation_history=None):
     """
     Extracts numeric state from natural language.
-    FIXED (this pass): stated counts are now explicitly treated as the CURRENT
-    TOTAL right now, not an increment on top of the previous known value. This
-    was the root cause of queue numbers compounding across turns (e.g. saying
-    "11 emergency patients" twice in a row was sometimes being read as +11 on
-    top of the existing count instead of "the queue is currently 11").
+    FIXED: Proper scale understanding, weather context, price mapping, and
+    now refuses to guess a specific number for vague/unquantified language —
+    it asks for clarification instead.
     """
     fields     = TASK_FIELD_SPECS[task]
     field_desc = "\n".join(f"- {k}: {v}" for k, v in fields.items())
@@ -320,40 +320,84 @@ def extract_state(task, user_message, known_state, conversation_history=None):
             f"{m['role']}: {m['content']}" for m in conversation_history[-4:]
         )
 
-    energy_tasks      = {"solar_scheduling", "battery_management", "grid_interaction"}
-    finance_tasks     = {"trading", "savings", "budget"}
-    agriculture_tasks = {"soil_preparation", "irrigation", "pest_control"}
+    hospital_tasks     = {"bed_allocation", "er_queue", "staff_allocation"}
+    traffic_tasks      = {"intersection", "pedestrian", "parking"}
+    energy_tasks       = {"solar_scheduling", "battery_management", "grid_interaction"}
+    finance_tasks      = {"trading", "savings", "budget"}
+    agriculture_tasks  = {"soil_preparation", "irrigation", "pest_control"}
 
-    energy_rules = """1. Rain / cloudy / overcast / no sun / night → solar_output = 0, solar_surplus = 0
-2. "High price" / "expensive grid" / "costly grid" → grid_price = 2
-3. "Cheap grid" / "low price" → grid_price = 0
-4. "Some charge" / "some battery" → battery_level = 5 (medium)
-5. "Low battery" → battery_level = 2
-6. "Full battery" → battery_level = 9
-7. "A lot of solar" / "panels working well" → solar_output = 7
-8. "Weak solar" / "little sun" → solar_output = 2
+    hospital_rules = """1. Only change a field's value if the message gives a specific number for it, or an
+   unambiguous quantity clearly implied ("no emergency patients" = 0, "the ward is
+   completely full" = free_beds 0, "fully staffed" leave available_doctors unchanged
+   unless a number is given).
+2. If the message uses a vague quantifier with no specific number for a field that
+   would CHANGE its current known value ("a lot of patients", "many", "some",
+   "quite a few", "not many", "a handful", "a couple") — do NOT invent a number.
+   Set needs_clarification=true and ask the user for an approximate count for that
+   exact field.
+3. Never change emergency_queue, normal_queue, free_beds, waiting_patients,
+   available_doctors, or patient_load unless the message actually references that
+   field (by name or an obvious synonym) with a specific or unambiguous value. If
+   the message only discusses one field, every other field must stay at its known
+   value — do not "helpfully" adjust related fields you weren't told about.
+""" if task in hospital_tasks else ""
+
+    traffic_rules = """1. "No cars" / "empty intersection" / "nothing waiting" / "no pedestrians" →
+   the relevant count field = 0 (unambiguous).
+2. "Lot is full" / "no spots left" → spots = 0 (unambiguous).
+3. For every count and wait-time field (cars_NS, cars_EW, wait_NS, wait_EW, peds,
+   vehs, ped_wait, veh_wait, spots, incoming, queue_wait): if the message uses a
+   vague magnitude word with NO specific number ("a lot", "heavy traffic", "busy",
+   "long wait", "backed up", "not many", "quite a few") and this would CHANGE the
+   field's current value, do NOT invent a number. Set needs_clarification=true and
+   ask for an approximate count or wait time for that exact field.
+4. current_phase / phase / elapsed fields are internal signal-timing state, not
+   something a user typically states in plain language — leave them at their known
+   value unless the message explicitly gives a phase or duration.
+""" if task in traffic_tasks else ""
+
+    energy_rules = """1. Rain / cloudy / overcast / no sun / night is a physical certainty, not a guess
+   → solar_output = 0, solar_surplus = 0. Apply this directly, no need to ask.
+2. "Battery is empty" / "dead battery" / "no charge" → battery_level = 0 (unambiguous
+   endpoint). "Battery is full" / "fully charged" → battery_level = 9 (unambiguous
+   endpoint).
+3. Grid price words are discrete labels on a DEFINED 3-point scale, not a magnitude
+   guess — apply directly: "cheap"/"low price" → grid_price = 0, "normal"/"average"
+   → grid_price = 1, "expensive"/"high"/"costly" → grid_price = 2.
+4. For solar_output, battery_level, home_consumption, and solar_surplus specifically
+   (all continuous 0-9 scales): if the message uses a vague magnitude word with NO
+   number ("a lot", "some", "a bit", "moderate", "weak", "low", "high", "strong",
+   "decent") and this would CHANGE the field's current value, do NOT invent a
+   specific integer. Set needs_clarification=true and ask for an approximate 0-9
+   estimate for that exact field.
 """ if task in energy_tasks else ""
 
-    finance_rules = """1. "Market crashing" / "prices falling" / "prices dropping" → price_trend = -2
-2. "Prices down slightly" / "slipping" → price_trend = -1
-3. "Market stable" / "flat" → price_trend = 0
-4. "Prices up" / "rising" → price_trend = 1
-5. "Market surging" / "prices soaring" → price_trend = 2
-6. "Low on cash" / "tight budget" phrases should lower cash/current_savings, not price_trend.
-7. "Urgent request" / "emergency spending" → increase urgent_requests, not other fields.
+    finance_rules = """1. Market-trend words are discrete labels on a DEFINED -2..2 scale, not a
+   magnitude guess — apply directly: "crashing"/"plummeting" = -2, "falling"/
+   "dropping"/"slipping" = -1, "flat"/"stable" = 0, "rising"/"up" = 1, "surging"/
+   "soaring"/"bull run" = 2.
+2. "Urgent request" / "emergency spending" mentioned with no count → increase
+   urgent_requests by 1 (a single new event, not a magnitude guess).
+3. For cash, current_savings, expenses, monthly_income, total_budget, and
+   amount_spent (all dollar amounts): if the message uses a vague word ("low on
+   cash", "tight budget", "doing well", "plenty saved") with NO number and this
+   would CHANGE the field's current value, do NOT invent a dollar figure. Set
+   needs_clarification=true and ask for an approximate amount for that exact field.
 """ if task in finance_tasks else ""
 
-    agriculture_rules = """1. "Soil is too acidic" / "pH is low" → soil_ph below 5.5
-2. "Soil is alkaline" / "pH is high" → soil_ph above 7.5
-3. "Heavy rain expected" / "lots of rain coming" → rainfall_trend = 2
-4. "Drought" / "no rain" / "dry spell" → rainfall_trend = -2
-5. "Reservoir is low" / "water is scarce" → water_reservoir low (e.g. 10-20)
-6. "Reservoir is full" / "plenty of water" → water_reservoir high (e.g. 80-100)
-7. "Crops stressed" / "wilting" → crop_stress high (e.g. 70-90)
-8. "Pest outbreak" / "infestation" → increase urgent_outbreaks
+    agriculture_rules = """1. Rainfall-trend words are discrete labels on a DEFINED -2..2 scale, not a
+   magnitude guess — apply directly: "drought"/"no rain" = -2, "dry spell" = -1,
+   "neutral"/"normal" = 0, "light rain coming" = 1, "heavy rain coming" = 2.
+2. "Pest outbreak" / "infestation" mentioned with no count → increase
+   urgent_outbreaks by 1 (a single new event, not a magnitude guess).
+3. For soil_ph, organic_matter, drainage_quality, water_reservoir, and crop_stress
+   (all continuous scales): if the message uses a vague word ("too acidic", "low",
+   "scarce", "stressed", "wilting", "poor") with NO specific number/percentage and
+   this would CHANGE the field's current value, do NOT invent a number. Set
+   needs_clarification=true and ask for an approximate reading for that exact field.
 """ if task in agriculture_tasks else ""
 
-    domain_rules = energy_rules + finance_rules + agriculture_rules
+    domain_rules = hospital_rules + traffic_rules + energy_rules + finance_rules + agriculture_rules
     scale_block  = SCALE_CONTEXT if task in (energy_tasks | finance_tasks | agriculture_tasks) else ""
 
     system_prompt = f"""You are a precise data extractor for UMORDA decision systems.
@@ -365,17 +409,19 @@ Fields to extract:
 {field_desc}
 
 CRITICAL EXTRACTION RULES:
-{domain_rules}9. Only update fields the message mentions. Keep others from known state.
-10. If value is impossible → needs_clarification = true.
-11. ABSOLUTE VALUES, NOT ADDITIONS: every number the user states is the CURRENT
-    TOTAL count right now — a fresh snapshot of the situation, NOT extra
-    patients/cars/units to add on top of the previous known value. If the
-    known state says emergency_queue=10 and the user says "11 emergency
-    patients waiting", the new value is 11 (replacing 10), NEVER 10+11=21.
-    Only treat a number as additive if the user explicitly uses language like
-    "X more arrived", "an additional X", or "X just showed up" — plain
-    restatement of a count ("there are X waiting") is always absolute, not
-    additive, even if it's close to or the same as the previous value.
+{domain_rules}9. Only update fields the message clearly and specifically supports — an explicit
+   number, or an unambiguous mapping given by a rule above. Leave every other
+   field exactly as given in the known state.
+10. Do NOT guess a plausible-sounding number for vague or unquantified language
+    that has no matching rule above. If you cannot determine a NEW value for a
+    field with reasonable confidence, leave needs_clarification=true and name the
+    exact field(s) you need a number for in clarification_question. Guessing a
+    "reasonable" number instead of asking is a failure — prefer asking.
+11. If a stated value is out of range or physically impossible (e.g. negative
+    beds, more shares sold than held) → needs_clarification = true.
+12. If the message is entirely unrelated to any field in this task and known
+    state already covers everything needed, needs_clarification may stay false
+    and you may simply return known_state unchanged with a note explaining that.
 
 Output ONLY this JSON:
 {{
@@ -385,14 +431,13 @@ Output ONLY this JSON:
   "notes": "brief note on what was extracted"
 }}
 """
-    user_prompt = f"""Known state (previous turn — for reference only, do NOT add to it unless
-the message explicitly says "more" or "additional"): {json.dumps(known_state)}{history_text}
+    user_prompt = f"""Known state: {json.dumps(known_state)}{history_text}
 
 User said: "{user_message}"
 
 Extract and output JSON only."""
 
-    raw    = _call_llm(system_prompt, user_prompt, temperature=0.1, max_tokens=300)
+    raw    = _call_llm(system_prompt, user_prompt, temperature=0.1, max_tokens=700)
     parsed = _parse_json(raw)
 
     result_state = dict(known_state)
@@ -494,7 +539,7 @@ Policy context:
 
 Explain this decision simply. No Q-values. No technical jargon. 2-3 sentences max."""
 
-    raw = _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=200)
+    raw = _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=500)
     return _trim_to_sentences(raw, max_sentences=3)
 
 
@@ -512,7 +557,7 @@ Decision: {action}
 
 Explain simply and directly, 2-3 sentences max."""
 
-    raw = _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=200)
+    raw = _call_llm(system_prompt, user_prompt, temperature=0.3, max_tokens=500)
     return _trim_to_sentences(raw, max_sentences=3)
 
 
