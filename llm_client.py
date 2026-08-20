@@ -361,15 +361,22 @@ def extract_state(task, user_message, known_state, conversation_history=None):
 2. "Battery is empty" / "dead battery" / "no charge" → battery_level = 0 (unambiguous
    endpoint). "Battery is full" / "fully charged" → battery_level = 9 (unambiguous
    endpoint).
+2b. An intensifier ("nearly", "almost", "critically", "very", "really", "extremely")
+   combined with a direction word ("empty", "low", "dead", "full", "charged", "high")
+   IS unambiguous — the intensifier supplies the missing precision, it does not
+   create a gap. Apply directly: "nearly empty" / "almost dead" / "critically low"
+   → battery_level = 1. "really low" / "very low" → battery_level = 2. "really high"
+   / "very high" → battery_level = 8. Do NOT ask for clarification on these — only
+   a BARE direction word with no intensifier ("low", "high") falls under rule 4.
 3. Grid price words are discrete labels on a DEFINED 3-point scale, not a magnitude
    guess — apply directly: "cheap"/"low price" → grid_price = 0, "normal"/"average"
    → grid_price = 1, "expensive"/"high"/"costly" → grid_price = 2.
 4. For solar_output, battery_level, home_consumption, and solar_surplus specifically
    (all continuous 0-9 scales): if the message uses a vague magnitude word with NO
-   number ("a lot", "some", "a bit", "moderate", "weak", "low", "high", "strong",
-   "decent") and this would CHANGE the field's current value, do NOT invent a
-   specific integer. Set needs_clarification=true and ask for an approximate 0-9
-   estimate for that exact field.
+   number AND NO intensifier ("a lot", "some", "a bit", "moderate", "weak", "low",
+   "high", "strong", "decent") and this would CHANGE the field's current value, do
+   NOT invent a specific integer. Set needs_clarification=true and ask for an
+   approximate 0-9 estimate for that exact field.
 """ if task in energy_tasks else ""
 
     finance_rules = """1. Market-trend words are discrete labels on a DEFINED -2..2 scale, not a
@@ -390,10 +397,16 @@ def extract_state(task, user_message, known_state, conversation_history=None):
    "neutral"/"normal" = 0, "light rain coming" = 1, "heavy rain coming" = 2.
 2. "Pest outbreak" / "infestation" mentioned with no count → increase
    urgent_outbreaks by 1 (a single new event, not a magnitude guess).
+2b. An intensifier ("really", "very", "extremely", "highly") combined with a
+   direction word ("acidic", "alkaline") for soil_ph IS unambiguous — apply
+   directly: "really acidic" / "very acidic" / "extremely acidic" → soil_ph = 4.3.
+   "really alkaline" / "very alkaline" → soil_ph = 8.5. Do NOT ask for
+   clarification on these — only a BARE direction word with no intensifier
+   ("acidic", "alkaline", "too acidic") falls under rule 3 below.
 3. For soil_ph, organic_matter, drainage_quality, water_reservoir, and crop_stress
-   (all continuous scales): if the message uses a vague word ("too acidic", "low",
-   "scarce", "stressed", "wilting", "poor") with NO specific number/percentage and
-   this would CHANGE the field's current value, do NOT invent a number. Set
+   (all continuous scales): if the message uses a vague word with NO number AND
+   NO intensifier ("too acidic", "low", "scarce", "stressed", "wilting", "poor")
+   and this would CHANGE the field's current value, do NOT invent a number. Set
    needs_clarification=true and ask for an approximate reading for that exact field.
 """ if task in agriculture_tasks else ""
 
