@@ -1,13 +1,13 @@
 {
   "bed_allocation": {
-    "free_beds": 16,
-    "waiting_patients": 14,
-    "last_updated": "2026-08-20T01:27:52"
+    "free_beds": 2,
+    "waiting_patients": 10,
+    "last_updated": "2026-08-20T14:12:27"
   },
   "er_queue": {
-    "emergency_queue": 8,
-    "normal_queue": 5,
-    "last_updated": "2026-08-20T01:28:34"
+    "emergency_queue": 6,
+    "normal_queue": 10,
+    "last_updated": "2026-08-20T11:27:06"
   },
   "staff_allocation": {
     "available_doctors": 6,
