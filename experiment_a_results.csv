@@ -1,0 +1,9 @@
+task,condition,mean_reward,std_reward,mean_safety_metric,max_safety_metric,mean_starvation,mean_jain,safety_label
+intersection,ON,588.62,536.96,3.5,8.0,1.5,0.972,Max Wait NS (steps)
+intersection,OFF,532.68,552.7,3.45,8.0,1.25,0.976,Max Wait NS (steps)
+pedestrian,ON,341.65,38.25,4.22,8.0,0.38,0.623,Max Ped Wait (steps)
+pedestrian,OFF,342.66,35.99,4.16,8.0,0.74,0.626,Max Ped Wait (steps)
+er_queue,ON,224.47,70.46,5.32,11.0,0.0,0.542,Max Emergency Queue
+er_queue,OFF,-343.58,48.43,20.0,20.0,59.83,0.948,Max Emergency Queue
+budget,ON,-142.88,57.05,0.0,0.0,0.0,0.59,Urgent Requests Deferred
+budget,OFF,-1071.91,27.28,59.62,60.0,59.62,0.59,Urgent Requests Deferred
