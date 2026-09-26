@@ -20,9 +20,9 @@ TASKS = {
 }
 
 METRIC_NAMES = {
-    "er_queue": "Emergency-service opportunity rate",
-    "intersection": "Mean directional wait (steps)",
-    "solar_scheduling": "Available direct-solar opportunity used",
+    "er_queue": "Successful-service opportunity rate",
+    "intersection": "Mean served-vehicle waiting time (steps)",
+    "solar_scheduling": "Grid-import fraction of demand",
     "budget": "Urgent full-funding opportunity rate",
     "pest_control": "Urgent full-treatment opportunity rate",
 }
@@ -39,12 +39,12 @@ def make_env(task):
         return HospitalEnv(task=task)
 
     if task == "intersection":
-        from environments.traffic_env import TrafficEnv
-        return TrafficEnv(task=task)
+        from experiment_transition_envs import ExperimentTrafficEnv
+        return ExperimentTrafficEnv(task=task)
 
     if task == "solar_scheduling":
-        from environments.energy_env import EnergyEnv
-        return EnergyEnv(task=task)
+        from experiment_transition_envs import ExperimentEnergyEnv
+        return ExperimentEnergyEnv(task=task)
 
     if task == "budget":
         from environments.finance_env import FinanceEnv
@@ -116,8 +116,11 @@ def rule_action(task, state, env):
         ns, ew, phase, elapsed, wait_ns, wait_ew = state
         limit = env.cfg["max_wait_limit"]
 
+        # Uses the same capped observation available to Q-learning.
         if max(wait_ns, wait_ew) >= limit:
-            return 0 if wait_ns >= wait_ew else 1
+            if wait_ns == wait_ew:
+                return 1 - int(phase)
+            return 0 if wait_ns > wait_ew else 1
 
         if elapsed < env.cfg["min_phase_duration"]:
             return int(phase)
@@ -251,11 +254,33 @@ def evaluate(task, q, policy, training_seed, args):
 
         total_reward = 0.0
         starvation = 0
+
         opportunities = 0.0
         successes = 0.0
+
         burdens = np.zeros(2)
         unserved_streaks = np.zeros(2, dtype=int)
         fulfillment_ratios = []
+
+        traffic_served = 0
+        traffic_served_wait = 0.0
+        traffic_arrivals = 0
+        traffic_overflow = 0
+        traffic_remaining = 0
+
+        constraint_overrides = 0
+        wait_limit_overrides = 0
+        minimum_phase_overrides = 0
+
+        energy_demand = 0.0
+        energy_grid_import = 0.0
+        energy_solar_available = 0.0
+        energy_direct_solar = 0.0
+        energy_battery_charge = 0.0
+        energy_battery_discharge = 0.0
+        energy_curtailed_solar = 0.0
+
+        action_counts = {}
 
         for step in range(args.max_steps):
             before = snapshot(env)
@@ -266,23 +291,18 @@ def evaluate(task, q, policy, training_seed, args):
                 else int(np.argmax(q[state_index(task, obs)]))
             )
 
-            # Same episode/step RNG seeds for each evaluated policy.
-            # Branch-dependent draws can differ, so this does not imply
-            # identical action-dependent trajectories.
             step_seed = np.random.SeedSequence(
                 [evaluation_seed, step]
             ).generate_state(1)[0]
             seed_all(step_seed)
 
-            actual = (
-                env._safety_override(proposed)
-                if task == "intersection"
-                else proposed
-            )
-
             nxt, reward, terminated, truncated, info = take_step(
                 env, proposed, args.reward_mode
             )
+
+            actual = int(info.get("executed_action", proposed))
+            action_counts[actual] = action_counts.get(actual, 0) + 1
+
             total_reward += reward
             after = snapshot(env)
 
@@ -301,34 +321,95 @@ def evaluate(task, q, policy, training_seed, args):
                     else:
                         unserved_streaks[group] += 1
 
-                    # Count once when a group reaches the threshold.
                     starvation += int(
                         unserved_streaks[group] == args.er_threshold
                     )
 
-                    # Aggregate queue burden, not individual patient waits.
+                    # Queue burden measured after service, before arrivals.
                     burdens[group] += max(0, count - int(served))
 
-                opportunities += int(counts[0] > 0)
-                successes += int(counts[0] > 0 and actual == 0)
+                # An opportunity exists when either queue contains a patient.
+                # A success means the selected queue was nonempty.
+                opportunities += int(any(count > 0 for count in counts))
+                successes += int(counts[actual] > 0)
 
             elif task == "intersection":
-                ns, ew, _, _, wait_ns, wait_ew = after
-                burdens += [wait_ns, wait_ew]
+                required = (
+                    "served_NS",
+                    "served_EW",
+                    "served_wait_sum_NS",
+                    "served_wait_sum_EW",
+                    "arrivals_NS",
+                    "arrivals_EW",
+                    "overflow_NS",
+                    "overflow_EW",
+                    "queue_wait_sum_NS",
+                    "queue_wait_sum_EW",
+                    "true_max_wait_NS",
+                    "true_max_wait_EW",
+                    "constraint_reason",
+                )
+
+                missing = [key for key in required if key not in info]
+                if missing:
+                    raise RuntimeError(
+                        "Traffic evaluation requires the revised "
+                        f"ExperimentTrafficEnv. Missing: {missing}"
+                    )
+
+                traffic_served += (
+                    info["served_NS"] + info["served_EW"]
+                )
+                traffic_served_wait += (
+                    info["served_wait_sum_NS"]
+                    + info["served_wait_sum_EW"]
+                )
+                traffic_arrivals += (
+                    info["arrivals_NS"] + info["arrivals_EW"]
+                )
+                traffic_overflow += (
+                    info["overflow_NS"] + info["overflow_EW"]
+                )
+
+                # Retain exact waiting burden, not capped observation waits.
+                burdens += [
+                    info["queue_wait_sum_NS"],
+                    info["queue_wait_sum_EW"],
+                ]
+
                 limit = env.cfg["max_wait_limit"]
 
-                # Direction-step threshold breaches, not unique vehicles.
-                starvation += int(ns > 0 and wait_ns >= limit)
-                starvation += int(ew > 0 and wait_ew >= limit)
+                starvation += int(
+                    info["queue_length_NS"] > 0
+                    and info["true_max_wait_NS"] >= limit
+                )
+                starvation += int(
+                    info["queue_length_EW"] > 0
+                    and info["true_max_wait_EW"] >= limit
+                )
+
+                reason = info["constraint_reason"]
+                constraint_overrides += int(actual != proposed)
+                wait_limit_overrides += int(reason == "wait_limit")
+                minimum_phase_overrides += int(
+                    reason == "minimum_phase_duration"
+                )
+
+                traffic_remaining = int(
+                    info["queue_length_NS"] + info["queue_length_EW"]
+                )
 
             elif task in ("budget", "pest_control"):
                 if task == "budget":
-                    used, urgent = "amount_spent", "urgent_requests"
+                    used = "amount_spent"
+                    urgent = "urgent_requests"
                 else:
-                    used, urgent = "resource_used", "urgent_outbreaks"
+                    used = "resource_used"
+                    urgent = "urgent_outbreaks"
 
                 allocated = max(0.0, after[used] - before[used])
                 request = float(info["request_size"])
+
                 fraction = min(1.0, allocated / request)
                 fulfillment_ratios.append(fraction)
 
@@ -337,14 +418,42 @@ def evaluate(task, q, policy, training_seed, args):
 
                 opportunities += int(is_urgent)
                 successes += int(is_urgent and fully_met)
+
+                # Urgent opportunities not fully met:
+                # includes partial allocation, deferral and failed allocation.
                 starvation += int(is_urgent and not fully_met)
 
-            else:
-                solar, demand, _, _ = before
-                available_direct_solar = min(solar, demand)
-                opportunities += available_direct_solar
-                successes += (
-                    available_direct_solar if actual == 0 else 0
+            elif task == "solar_scheduling":
+                required = (
+                    "demand",
+                    "demand_served",
+                    "grid_import",
+                    "solar_available",
+                    "direct_solar",
+                    "battery_charge",
+                    "battery_discharge",
+                    "curtailed_solar",
+                )
+
+                missing = [key for key in required if key not in info]
+                if missing:
+                    raise RuntimeError(
+                        "Energy evaluation requires the revised "
+                        f"ExperimentEnergyEnv. Missing: {missing}"
+                    )
+
+                energy_demand += info["demand"]
+                energy_grid_import += info["grid_import"]
+                energy_solar_available += info["solar_available"]
+                energy_direct_solar += info["direct_solar"]
+                energy_battery_charge += info["battery_charge"]
+                energy_battery_discharge += info["battery_discharge"]
+                energy_curtailed_solar += info["curtailed_solar"]
+
+                # Actual unmet-demand steps; expected to be zero with
+                # unlimited grid backup.
+                starvation += int(
+                    info["demand_served"] < info["demand"] - 1e-8
                 )
 
             obs = nxt
@@ -353,22 +462,33 @@ def evaluate(task, q, policy, training_seed, args):
 
         steps = step + 1
 
-        if task == "solar_scheduling":
-            fairness = None
-            starvation_value = None
-        elif task in ("budget", "pest_control"):
-            fairness = jain(fulfillment_ratios)
-            starvation_value = starvation
-        else:
-            fairness = jain(burdens)
-            starvation_value = starvation
-
         if task == "intersection":
-            key_metric = float(burdens.sum() / (2 * steps))
+            key_metric = (
+                traffic_served_wait / traffic_served
+                if traffic_served > 0 else None
+            )
+            fairness = jain(burdens)
+
+        elif task == "solar_scheduling":
+            key_metric = (
+                energy_grid_import / energy_demand
+                if energy_demand > 0 else None
+            )
+            fairness = None
+
+        elif task in ("budget", "pest_control"):
+            key_metric = (
+                successes / opportunities
+                if opportunities > 0 else None
+            )
+            fairness = jain(fulfillment_ratios)
+
         else:
             key_metric = (
-                successes / opportunities if opportunities else None
+                successes / opportunities
+                if opportunities > 0 else None
             )
+            fairness = jain(burdens)
 
         rows.append({
             "domain": TASKS[task],
@@ -378,9 +498,29 @@ def evaluate(task, q, policy, training_seed, args):
             "evaluation_seed": evaluation_seed,
             "steps": steps,
             "reward": total_reward,
-            "starvation": starvation_value,
+            "starvation": starvation,
             "jain_fairness": fairness,
             "key_metric": key_metric,
+
+            "constraint_overrides": constraint_overrides,
+            "wait_limit_overrides": wait_limit_overrides,
+            "minimum_phase_overrides": minimum_phase_overrides,
+
+            "traffic_vehicles_served": traffic_served,
+            "traffic_served_wait_sum": traffic_served_wait,
+            "traffic_arrivals": traffic_arrivals,
+            "traffic_overflow": traffic_overflow,
+            "traffic_remaining_at_end": traffic_remaining,
+
+            "energy_demand": energy_demand,
+            "energy_grid_import": energy_grid_import,
+            "energy_solar_available": energy_solar_available,
+            "energy_direct_solar": energy_direct_solar,
+            "energy_battery_charge": energy_battery_charge,
+            "energy_battery_discharge": energy_battery_discharge,
+            "energy_curtailed_solar": energy_curtailed_solar,
+
+            "executed_action_counts": json.dumps(action_counts),
         })
 
     return rows
