@@ -1,0 +1,32 @@
+{
+  "train_episodes": 20000,
+  "eval_episodes": 200,
+  "max_steps": 100,
+  "seeds": [
+    42,
+    123,
+    2026
+  ],
+  "eval_seed": 9000000,
+  "alpha": 0.1,
+  "gamma": 0.95,
+  "epsilon_decay": 0.9995,
+  "er_threshold": 8,
+  "reward_mode": "native",
+  "tasks": [
+    "er_queue",
+    "intersection",
+    "solar_scheduling",
+    "budget",
+    "pest_control"
+  ],
+  "output": null,
+  "numpy_version": "2.5.2",
+  "key_metrics": {
+    "er_queue": "Emergency-service opportunity rate",
+    "intersection": "Mean directional wait (steps)",
+    "solar_scheduling": "Available direct-solar opportunity used",
+    "budget": "Urgent full-funding opportunity rate",
+    "pest_control": "Urgent full-treatment opportunity rate"
+  }
+}
