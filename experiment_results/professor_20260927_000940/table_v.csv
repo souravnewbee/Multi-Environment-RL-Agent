@@ -1,0 +1,6 @@
+domain,task,q_reward,rule_reward,metric_name,q_key_metric,rule_key_metric
+Hospital,er_queue,216.04,378.3,Emergency-service opportunity rate,1.0,1.0
+Traffic,intersection,532.8361666666666,578.2625,Mean directional wait (steps),1.2705,1.2704999999999997
+Energy,solar_scheduling,191.4752777777778,188.0625,Available direct-solar opportunity used,0.2522664492404033,1.0
+Finance,budget,-138.13333333333333,-799.695,Urgent full-funding opportunity rate,0.11081077654017726,0.10282008298107691
+Agriculture,pest_control,-62.955,-440.18,Urgent full-treatment opportunity rate,0.11315729273051005,0.14509506697386698
