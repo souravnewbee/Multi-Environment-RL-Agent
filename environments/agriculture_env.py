@@ -154,10 +154,24 @@ class AgricultureEnv(gym.Env):
                 info["missed_window"] = True
                 info["result"] = info.get("result", "") + " | Planting window closed -- never planted!"
         elif self.task == "irrigation":
-            self.state["days_remaining"] = max(0, self.SHIFT_LENGTH - self.t)
+            self.state["days_remaining"] = max(
+                0, self.SHIFT_LENGTH - self.t
+            )
             truncated = self.t >= self.SHIFT_LENGTH
-        else:
-            truncated = self.t >= self.SHIFT_LENGTH
+
+        elif self.task == "pest_control":
+            terminated = self.state["plots_remaining"] <= 0
+            truncated = (
+                self.t >= self.SHIFT_LENGTH and not terminated
+            )
+
+            info["termination_reason"] = (
+                "plots_exhausted"
+                if terminated
+                else "time_limit"
+                if truncated
+                else None
+            )
 
         info["step"] = self.t
 

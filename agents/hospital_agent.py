@@ -28,10 +28,19 @@ def discretize(obs, task):
         return (beds, patients)
 
     elif task == "er_queue":
-        # emergency_queue: 0-20 (real cap) -> 5 bins of 4
-        # normal_queue: 0-40 (real cap) -> 5 bins of 8
-        emergency = int(np.clip(obs[0], 0, 20)) // 4
-        normal    = int(np.clip(obs[1], 0, 40)) // 8
+        emergency_count = int(np.clip(obs[0], 0, 20))
+        normal_count = int(np.clip(obs[1], 0, 40))
+
+        
+        emergency = (
+            0 if emergency_count == 0
+            else 1 + (emergency_count - 1) // 4
+        )
+        normal = (
+            0 if normal_count == 0
+            else 1 + (normal_count - 1) // 8
+        )
+
         return (emergency, normal)
 
     elif task == "staff_allocation":

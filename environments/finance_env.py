@@ -223,20 +223,43 @@ class FinanceEnv:
     # ── Step ──────────────────────────────────────────────────────────────────
     def step(self, action_index):
         if action_index < 0 or action_index >= self.n_actions:
-            raise ValueError(f"Invalid action {action_index}. "
-                             f"Must be 0 to {self.n_actions-1}.")
+            raise ValueError(
+                f"Invalid action {action_index}. "
+                f"Must be 0 to {self.n_actions - 1}."
+            )
 
         action = self.actions[action_index]
 
+        # Each task returns reward and info before they are used below.
         if self.task == "trading":
             reward, info = self._step_trading(action)
         elif self.task == "savings":
             reward, info = self._step_savings(action)
         elif self.task == "budget":
             reward, info = self._step_budget(action)
+        else:
+            raise ValueError(f"Unknown finance task: {self.task}")
 
-        self.t   += 1
-        self.done = self.t >= self.SHIFT_LENGTH
+        self.t += 1
+        time_limit_reached = self.t >= self.SHIFT_LENGTH
+
+        if self.task == "budget":
+            allocation_round_finished = (
+                self.state["departments_remaining"] <= 0
+            )
+            self.done = (
+                allocation_round_finished or time_limit_reached
+            )
+
+            info["termination_reason"] = (
+                "departments_exhausted"
+                if allocation_round_finished
+                else "time_limit"
+                if time_limit_reached
+                else None
+            )
+        else:
+            self.done = self.done or time_limit_reached
 
         return self.state, reward, self.done, info
 
